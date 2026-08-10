@@ -5,6 +5,8 @@ import { PrismaClient } from "../generated/prisma/client";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
+// Defaults to test-mode prices — set these env vars to the live-mode price
+// IDs (see .env.example) when seeding a production database.
 const TIERS = [
   {
     name: "Free",
@@ -18,7 +20,9 @@ const TIERS = [
     name: "Starter",
     slug: "starter",
     credits: 100,
-    stripePriceId: "price_1U2X2yCdtcz0ii9wDEAn5yfZ",
+    stripePriceId:
+      process.env.STRIPE_PRICE_LEAD_FINDER_STARTER ??
+      "price_1U2X2yCdtcz0ii9wDEAn5yfZ",
     amountCents: 2000,
     recurring: true,
   },
@@ -26,7 +30,9 @@ const TIERS = [
     name: "Growth",
     slug: "growth",
     credits: 500,
-    stripePriceId: "price_1U2X2zCdtcz0ii9wtOtsHlpH",
+    stripePriceId:
+      process.env.STRIPE_PRICE_LEAD_FINDER_GROWTH ??
+      "price_1U2X2zCdtcz0ii9wtOtsHlpH",
     amountCents: 5000,
     recurring: true,
   },
@@ -34,7 +40,9 @@ const TIERS = [
     name: "Scale",
     slug: "scale",
     credits: 1000,
-    stripePriceId: "price_1U2X30Cdtcz0ii9wMo90J1eu",
+    stripePriceId:
+      process.env.STRIPE_PRICE_LEAD_FINDER_SCALE ??
+      "price_1U2X30Cdtcz0ii9wMo90J1eu",
     amountCents: 9000,
     recurring: true,
   },
