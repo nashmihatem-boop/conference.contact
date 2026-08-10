@@ -237,11 +237,15 @@ export class SubscriptionsService {
       this.users.findById(userId),
     ]);
     const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+    // See User.adminGrantedDirectoryAccess — a comp independent of the
+    // Subscription table, so it forces hasDirectoryAccess the same way the
+    // admin-role bypass above does.
+    const isComped = user?.adminGrantedDirectoryAccess ?? false;
 
     if (!subscription) {
       return {
         status: 'NONE' as const,
-        hasDirectoryAccess: isAdmin,
+        hasDirectoryAccess: isAdmin || isComped,
       };
     }
 
@@ -251,7 +255,9 @@ export class SubscriptionsService {
       currentPeriodEnd: subscription.currentPeriodEnd,
       cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       hasDirectoryAccess:
-        isAdmin || hasDirectoryAccess(subscription, this.gracePeriodDays),
+        isAdmin ||
+        isComped ||
+        hasDirectoryAccess(subscription, this.gracePeriodDays),
       daysPastDue: daysPastDue(subscription.pastDueSince),
     };
   }
@@ -296,6 +302,44 @@ export class SubscriptionsService {
       message:
         'Your subscription will remain active until the end of the current billing period.',
     };
+  }
+
+  /**
+   * Undoes a pending cancellation on the same subscription — not a new
+   * checkout. While cancelAtPeriodEnd is true the subscription is still
+   * ACTIVE, so createCheckoutSession would just reject a second one; the
+   * only real action available is un-setting the flag Stripe already has.
+   */
+  async resume(userId: string): Promise<{ message: string }> {
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+        cancelAtPeriodEnd: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!subscription) {
+      throw new NotFoundException('No pending cancellation to undo');
+    }
+
+    await this.stripe.client.subscriptions.update(
+      subscription.stripeSubscriptionId,
+      { cancel_at_period_end: false },
+    );
+
+    await this.prisma.subscription.update({
+      where: { id: subscription.id },
+      data: { cancelAtPeriodEnd: false },
+    });
+
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'billing.subscription_resumed',
+      targetId: subscription.id,
+    });
+
+    return { message: 'Your subscription will continue renewing as normal.' };
   }
 
   // ── Stripe → local sync ──────────────────────────────────────────────

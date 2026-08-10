@@ -101,6 +101,13 @@ model User {
   role   Role          @default(USER)
   status AccountStatus @default(ACTIVE)
 
+  // Admin-granted Directory access, bypassing Stripe entirely — for
+  // partners, reviewers, or prospects an admin chooses to comp. Deliberately
+  // independent of the Stripe-backed Subscription table (which requires a
+  // real, unique stripeSubscriptionId) rather than faking a subscription
+  // row that no real Stripe object backs.
+  adminGrantedDirectoryAccess Boolean @default(false) @map("admin_granted_directory_access")
+
   // Created lazily on first checkout and reused for the account's whole
   // lifetime — one Stripe Customer per User, not per Subscription, so
   // cancel-then-resubscribe keeps payment history and saved cards intact
@@ -134,6 +141,7 @@ model User {
   verificationTokens VerificationToken[]
   leadSearchJobs     LeadSearchJob[]
   sentInvites        Invite[]
+  sentAdminAccessInvites AdminAccessInvite[]
   submittedLeads     Lead[]
 
   // Persistent Lead Finder balance — never expires. Starts at 100 (the Free
@@ -211,6 +219,35 @@ model Invite {
   @@index([inviterId])
   @@index([email])
   @@map("invites")
+}
+
+enum AdminAccessInviteStatus {
+  PENDING
+  ACCEPTED
+}
+
+// An admin-initiated "create this account" invite — distinct from Invite
+// (a paying customer inviting a colleague, which never grants subscription
+// access). Consumed by register(): a new signup whose email matches a
+// PENDING row here goes through the normal registration flow — the real
+// person still sets their own password and gives real ToS/Privacy consent —
+// but comes out the other side with the role and Directory access
+// specified here, instead of starting as a free USER with none.
+model AdminAccessInvite {
+  id              String @id @default(uuid()) @db.Uuid
+  invitedByUserId String @db.Uuid @map("invited_by_user_id")
+  invitedBy       User   @relation(fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  email                String
+  role                 Role                    @default(USER)
+  grantDirectoryAccess Boolean                 @default(true) @map("grant_directory_access")
+  status               AdminAccessInviteStatus @default(PENDING)
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  acceptedAt DateTime? @map("accepted_at")
+
+  @@index([email])
+  @@map("admin_access_invites")
 }
 
 // Email-verification and password-reset links. Single-use (usedAt) and

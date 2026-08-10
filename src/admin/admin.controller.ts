@@ -26,6 +26,10 @@ import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
 import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
 import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-messages-query.dto';
 import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
+import { InviteUserDto } from './dto/invite-user.dto';
+import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
+import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
+import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
 @ApiTags('admin')
@@ -97,6 +101,37 @@ export class AdminController {
     @Param('id') id: string,
   ) {
     return this.admin.impersonateUser(admin.sub, id);
+  }
+
+  @Post('users/invite')
+  inviteUser(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: InviteUserDto,
+  ) {
+    return this.admin.inviteUser(admin.sub, dto);
+  }
+
+  @Patch('users/:id/directory-access')
+  setDirectoryAccess(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: SetDirectoryAccessDto,
+  ) {
+    return this.admin.setDirectoryAccess(admin.sub, id, dto);
+  }
+
+  @Get('prospects')
+  listProspects(@Query() query: ListProspectsQueryDto) {
+    return this.admin.listProspects(query);
+  }
+
+  @Post('prospects/:id/pitch')
+  pitchProspect(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: PitchProspectDto,
+  ) {
+    return this.admin.pitchProspect(admin.sub, id, dto);
   }
 
   @Get('subscriptions')

@@ -41,6 +41,11 @@ export class SubscriptionsController {
     return this.subscriptions.cancel(user.sub);
   }
 
+  @Post('resume')
+  resume(@CurrentUser() user: AccessTokenPayload) {
+    return this.subscriptions.resume(user.sub);
+  }
+
   @Public()
   @Get('credit-packs')
   listCreditPacks() {
