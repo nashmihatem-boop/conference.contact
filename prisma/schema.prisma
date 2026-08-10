@@ -1,0 +1,690 @@
+// Prisma schema for conference-contact-api
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  // NestJS's build output is CommonJS; Prisma 7's client generator defaults
+  // to ESM, which crashes at runtime ("exports is not defined in ES module
+  // scope") when required from compiled Nest code. Pin to cjs explicitly.
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  PREMIUM
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum BillingInterval {
+  MONTH
+  SIX_MONTHS
+  YEAR
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  PAID
+  OPEN
+  VOID
+  UNCOLLECTIBLE
+}
+
+enum ConsentDocumentType {
+  TERMS
+  PRIVACY
+}
+
+enum VerificationTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+// Matches the six source files the real lead dataset was imported from —
+// see scripts/import-leads.ts. One-to-one with "Type of Company" in that
+// data, not a guess at categories that might exist.
+enum CompanyType {
+  ADVERTISER
+  AD_NETWORK
+  AFFILIATE
+  AFFILIATE_NETWORK
+  AGENCY
+  SOLUTION_PROVIDER
+}
+
+// Lead Finder's live Apollo.io search-and-enrich pipeline. RUNNING while
+// ApolloSearchProcessor is still working through candidates; CANCELLED is a
+// real user-initiated stop (checked between enrichment calls, each of which
+// costs real Apollo credits), not just a cosmetic state.
+enum LeadSearchJobStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Core identity
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id     String @id @default(uuid()) @db.Uuid
+  // Normalized to lowercase at the application layer before every write/read
+  // so uniqueness and lookups are case-insensitive without a citext extension.
+  email  String @unique
+  fullName    String @map("full_name")
+  passwordHash String @map("password_hash")
+  phone       String?
+
+  role   Role          @default(USER)
+  status AccountStatus @default(ACTIVE)
+
+  // Created lazily on first checkout and reused for the account's whole
+  // lifetime — one Stripe Customer per User, not per Subscription, so
+  // cancel-then-resubscribe keeps payment history and saved cards intact
+  // instead of starting over with a fresh Stripe identity each time.
+  stripeCustomerId String? @unique @map("stripe_customer_id")
+
+  emailVerifiedAt DateTime? @map("email_verified_at")
+
+  // 2FA (TOTP) — secret is encrypted at rest by the application (AES-256-GCM)
+  // before it ever reaches this column. Never store a plaintext secret.
+  twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
+  twoFactorSecret  String? @map("two_factor_secret")
+
+  // Brute-force protection
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until")
+
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  // Soft delete: status is set to DELETED and this is stamped. A separate,
+  // deliberate admin/background job handles hard erasure for GDPR requests —
+  // never a DB cascade, so billing/audit history is never silently lost.
+  deletedAt   DateTime? @map("deleted_at")
+
+  devices            Device[]
+  sessions           Session[]
+  subscriptions      Subscription[]
+  auditLogs          AuditLog[]
+  consentRecords     ConsentRecord[]
+  verificationTokens VerificationToken[]
+  leadSearchJobs     LeadSearchJob[]
+  sentInvites        Invite[]
+  submittedLeads     Lead[]
+
+  // Persistent Lead Finder balance — never expires. Starts at 100 (the Free
+  // tier's one-time grant — see LeadFinderTier) for every new account,
+  // regardless of the $50/6-month Directory subscription, which is a
+  // completely separate product surface. 1 credit is spent per
+  // successfully enriched Apollo result (see ApolloSearchProcessor).
+  // Topped up by: (a) a real recurring LeadFinderSubscription's monthly
+  // allowance landing on each successful invoice, or (b) a one-time
+  // CreditPack purchase. Once granted, a credit never expires or gets
+  // reclaimed — cancelling a tier just stops future top-ups.
+  leadFinderCredits Int @default(100) @map("lead_finder_credits")
+
+  leadFinderSubscriptions LeadFinderSubscription[]
+  creditGrants            CreditGrant[]
+
+  @@index([status])
+  @@map("users")
+}
+
+enum CreditGrantSource {
+  CREDIT_PACK_PURCHASE
+  LEAD_FINDER_TIER_GRANT
+  ADMIN_ADJUSTMENT
+}
+
+// A real ledger row per credit grant — logged going forward from the
+// moment this shipped, at the exact point a purchase/grant actually
+// happens (credit-pack checkout, Lead Finder tier's monthly invoice).
+// Deliberately excludes the one-time 100-credit Free tier signup default
+// (User.leadFinderCredits' schema default) since that was never
+// "purchased" — this table only exists to answer "how many credits has
+// this account paid for, and how much." Historical grants that happened
+// before this table existed are not backfilled (there was nothing to
+// backfill from — no local record of them was ever kept), so an admin
+// looking at an old account's "purchased" total will only see grants from
+// this point forward.
+model CreditGrant {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  credits         Int
+  source          CreditGrantSource
+  amountPaidCents Int?              @map("amount_paid_cents")
+  // Stripe checkout session id or invoice id — audit trail back to the real charge.
+  stripeReference String?           @map("stripe_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("credit_grants")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+}
+
+// A colleague invited to sign up for their own independent account — never
+// grants access to the inviter's subscription. "Accepted" just means the
+// invited email completed registration (see AuthService.register), not that
+// they subscribed; joining and paying are two separate, later steps.
+model Invite {
+  id      String @id @default(uuid()) @db.Uuid
+  inviterId String @db.Uuid @map("inviter_id")
+  inviter User   @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  email  String
+  status InviteStatus @default(PENDING)
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  acceptedAt DateTime? @map("accepted_at")
+
+  @@index([inviterId])
+  @@index([email])
+  @@map("invites")
+}
+
+// Email-verification and password-reset links. Single-use (usedAt) and
+// genuinely revocable — unlike the stateless login-challenge JWT, these can
+// sit unused in someone's inbox for hours or days, so "already used" and
+// "superseded by a newer request" both need to be real, checkable states.
+model VerificationToken {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hash of the raw token sent in the email link.
+  tokenHash String                   @unique @map("token_hash")
+  purpose   VerificationTokenPurpose
+
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, purpose])
+  @@map("verification_tokens")
+}
+
+// A recognized browser/client, persisted independently of any single login.
+// This is the "device" in "maximum 3 trusted devices" — it outlives any one
+// Session, since the same physical device produces many sessions over time
+// (every re-login, every refresh-token rotation cycle).
+//
+// `fingerprint` is a best-effort identifier for now: a hash of User-Agent
+// plus a first-party random ID issued via cookie on first contact. This is
+// intentionally the cheap version — real client-side fingerprinting (canvas/
+// audio/font signals via a library like FingerprintJS) is frontend work
+// tracked as a follow-up, and swapping it in later doesn't require a schema
+// change since it just changes what feeds this same column.
+model Device {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fingerprint    String
+  browserName    String? @map("browser_name")
+  browserVersion String? @map("browser_version")
+  os             String?
+  deviceType     String? @map("device_type") // "desktop" | "mobile" | "tablet"
+
+  // Trusted devices skip new-device verification on future logins. Capped
+  // at 3 per user by application logic (AuthService), not a DB constraint —
+  // "remove a device to make room" is a user action, not a hard limit that
+  // should throw a raw DB error.
+  isTrusted Boolean   @default(false) @map("is_trusted")
+  trustedAt DateTime? @map("trusted_at")
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  sessions Session[]
+
+  // One Device row per (user, fingerprint) pair — a second login from the
+  // same browser updates lastSeenAt rather than creating a duplicate device.
+  @@unique([userId, fingerprint])
+  @@index([userId])
+  @@map("devices")
+}
+
+// One row per login/refresh-token lifecycle. This is what makes multi-
+// device sessions, "log out from this device", and "log out everywhere"
+// possible — and, combined with Device, is the foundation the account-
+// sharing detection layer (Phase 3B) is built on top of.
+model Session {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deviceId String? @db.Uuid @map("device_id")
+  device   Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  // SHA-256 hash of the raw refresh token. The raw token is only ever seen
+  // once, at issuance, inside the HttpOnly cookie — it is never persisted.
+  tokenHash String @unique @map("token_hash")
+
+  ipAddress String? @map("ip_address")
+  // Populated by offline IP geolocation (geoip-lite) at session creation.
+  // Null for loopback/private IPs, which is most local dev traffic — not a
+  // bug, just nothing to resolve.
+  country   String?
+  city      String?
+  timezone  String?
+
+  // Computed once at session creation by RiskService — see its doc comment
+  // for the signals that feed the score. Never recomputed after the fact;
+  // a session's risk reflects what was known at login time.
+  riskScore   Int   @default(0) @map("risk_score")
+  riskSignals Json? @map("risk_signals")
+
+  // Rotation chain: when a refresh token is used, it's revoked and replaced.
+  // Reuse of a revoked token is a signal of token theft.
+  replacedByTokenId String? @map("replaced_by_token_id")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@index([deviceId])
+  // Backs the admin "flagged sessions" view — riskScore first since it's
+  // the actual filter (>= threshold), createdAt for the sort within it.
+  @@index([riskScore, createdAt])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Billing
+// ─────────────────────────────────────────────────────────────────────────
+
+// Pricing tiers are data, not hardcoded constants, so plans can change
+// without a deploy. stripePriceId is the link to the actual Stripe Price.
+model Plan {
+  id            String          @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String          @unique
+  stripePriceId String          @unique @map("stripe_price_id")
+  interval      BillingInterval
+  amountCents   Int             @map("amount_cents")
+  currency      String          @default("usd")
+  // Free-form feature flags/limits for this tier, read by SubscriptionGuard
+  // and the frontend — e.g. {"unlimitedSearch": true, "csvExport": true}
+  features      Json
+  isActive      Boolean         @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+// A one-time, non-recurring Lead Finder credit top-up — separate from Plan
+// (which is always a real Stripe recurring price). Credits never expire and
+// aren't tied to a billing period, so this is deliberately its own model
+// rather than another Plan row.
+model CreditPack {
+  id            String @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String @unique
+  credits       Int
+  stripePriceId String @unique @map("stripe_price_id")
+  amountCents   Int    @map("amount_cents")
+  currency      String @default("usd")
+  isActive      Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("credit_packs")
+}
+
+// The Lead Finder allowance ladder — deliberately independent of Plan
+// (Directory access, $50/6 months, forever-access-after-first-payment).
+// Lead Finder's real, ongoing cost is per-enrichment (Apollo), so it has
+// its own monthly-recurring tiers instead. "Free" is a catalog row for
+// display only (recurring: false, stripePriceId: null) — every account
+// already starts on it via User.leadFinderCredits' default; there's
+// nothing to check out.
+model LeadFinderTier {
+  id            String  @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String  @unique
+  credits       Int
+  stripePriceId String? @unique @map("stripe_price_id")
+  amountCents   Int     @map("amount_cents")
+  currency      String  @default("usd")
+  recurring     Boolean @default(true)
+  isActive      Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  subscriptions LeadFinderSubscription[]
+
+  @@map("lead_finder_tiers")
+}
+
+model LeadFinderSubscription {
+  id     String         @id @default(uuid()) @db.Uuid
+  userId String         @db.Uuid @map("user_id")
+  user   User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tierId String         @db.Uuid @map("tier_id")
+  tier   LeadFinderTier @relation(fields: [tierId], references: [id], onDelete: Restrict)
+
+  stripeCustomerId     String @map("stripe_customer_id")
+  stripeSubscriptionId String @unique @map("stripe_subscription_id")
+
+  status SubscriptionStatus @default(TRIALING)
+
+  currentPeriodStart DateTime @map("current_period_start")
+  currentPeriodEnd   DateTime @map("current_period_end")
+  cancelAtPeriodEnd  Boolean  @default(false) @map("cancel_at_period_end")
+
+  // Same grace-period bookkeeping as Subscription.pastDueSince — see its
+  // comment. Without this, hasPaidLeadFinderTier's PAST_DUE branch would
+  // grant paid-tier privileges forever after one failed charge.
+  pastDueSince DateTime? @map("past_due_since")
+
+  // Same "which cycle was this reminder for" tracking as Subscription — see its comment.
+  renewalReminderSentForPeriodEnd DateTime? @map("renewal_reminder_sent_for_period_end")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Fast "does this user currently have a paid tier" lookups
+  @@index([userId, status])
+  // A partial unique index on (userId) WHERE status IN (ACTIVE, TRIALING,
+  // PAST_DUE) also exists in the database (raw-SQL migration
+  // 20260810000000_one_active_subscription_per_user) — not representable
+  // here since Prisma's schema DSL has no partial/filtered unique index
+  // syntax. It's the real enforcement of "one live subscription per user";
+  // LeadFinderBillingService's check-then-act at checkout time is only a
+  // best-effort pre-check on top of it.
+  @@map("lead_finder_subscriptions")
+}
+
+model Subscription {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  planId String @db.Uuid @map("plan_id")
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  stripeCustomerId     String @map("stripe_customer_id")
+  stripeSubscriptionId String @unique @map("stripe_subscription_id")
+
+  status SubscriptionStatus @default(TRIALING)
+
+  currentPeriodStart DateTime  @map("current_period_start")
+  currentPeriodEnd   DateTime  @map("current_period_end")
+  cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+  trialEndsAt        DateTime? @map("trial_ends_at")
+
+  // Set the moment a payment first fails (status flips to PAST_DUE),
+  // cleared the moment payment succeeds again. Never overwritten by a
+  // repeat failure within the same past-due streak — this is what lets
+  // hasActiveAccess() grant a real, bounded grace period instead of
+  // indefinite PAST_DUE access. See subscription-access.util.ts.
+  pastDueSince DateTime? @map("past_due_since")
+
+  // Set to the currentPeriodEnd the reminder was sent for — not a boolean
+  // or a timestamp of "when sent", so RenewalReminderService can tell
+  // "already reminded for this cycle" apart from "renewed since, needs a
+  // new reminder for the next cycle" without a separate reset step.
+  renewalReminderSentForPeriodEnd DateTime? @map("renewal_reminder_sent_for_period_end")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invoices Invoice[]
+
+  // Fast "does this user currently have access" lookups
+  @@index([userId, status])
+  // Same partial-unique-index note as LeadFinderSubscription above — DB-only,
+  // added via raw-SQL migration 20260810000000_one_active_subscription_per_user.
+  @@map("subscriptions")
+}
+
+// Mirrors Stripe invoice data for fast local queries (admin payment views,
+// user billing history). Stripe itself remains the source of truth for
+// disputes — this table is a queryable cache, not the ledger.
+model Invoice {
+  id             String @id @default(uuid()) @db.Uuid
+  subscriptionId String @db.Uuid @map("subscription_id")
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  stripeInvoiceId String        @unique @map("stripe_invoice_id")
+  amountCents     Int           @map("amount_cents")
+  currency        String        @default("usd")
+  status          InvoiceStatus
+  pdfUrl          String?       @map("pdf_url")
+  paidAt          DateTime?     @map("paid_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([subscriptionId])
+  @@map("invoices")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Product data
+// ─────────────────────────────────────────────────────────────────────────
+
+// One shared dataset behind the paywall — not scoped per user. Access is
+// entirely gated by SubscriptionGuard (does the requesting user have an
+// active subscription), not by row ownership, since every paying
+// subscriber sees the same directory. Imported from real source data via
+// scripts/import-leads.ts — every column here maps to a real column in
+// that data, nothing spare for a hypothetical future field.
+model Lead {
+  id    String  @id @default(uuid()) @db.Uuid
+  name  String
+  title String?
+  // Nullable, not defaulted to a placeholder string — a handful of real
+  // rows (independent freelancers) genuinely have no company on file.
+  company String?
+
+  website  String?
+  linkedin String?
+  appLink  String? @map("app_link")
+  email    String?
+  phone    String?
+
+  companyType    CompanyType @map("company_type")
+  // One event per row in the source data (the same person attending two
+  // events is two rows, not a list here) — matches the real data exactly.
+  likelyToAttend String      @map("likely_to_attend")
+
+  // Every row from the original 21,744-record import defaults true
+  // (already vetted at import time). A self-submitted row (see
+  // PublicLeadsController.submitSelf) starts false and is excluded from
+  // subscriber search/export until an admin approves it — the one place
+  // this dataset accepts unvetted input, so it gets a moderation gate the
+  // bulk import never needed.
+  approved Boolean @default(true)
+  submittedByUserId String? @db.Uuid @map("submitted_by_user_id")
+  submittedBy       User?   @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyType])
+  @@index([likelyToAttend])
+  @@index([approved])
+  @@map("leads")
+}
+
+// Lead Finder's live web search: one row per "Find leads" run. Deliberately
+// NOT merged into the shared Lead table above — Apollo's enrichment is
+// licensed per paying account, not for building a redistributable directory
+// other subscribers could search for free, and these contacts have no
+// conference/event association. Scoped to the user who ran the search
+// instead, matching the Search/History UI split.
+model LeadSearchJob {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid @map("user_id")
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Doubles as the campaign name shown in History — either the original
+  // natural-language query, or whatever the user renamed it to in the
+  // review-parameters step before running the search.
+  query     String
+  // string[], stored as Json since Postgres arrays of nullable-length text
+  // via Prisma add little here over a small JSON blob nothing else queries into.
+  jobTitles Json?               @map("job_titles")
+  // The full structured Apollo filter set actually used for this search —
+  // what the review-parameters panel showed (Claude's extraction, possibly
+  // edited by the user) — kept for History/audit, distinct from `query`
+  // (the free-text input) and `jobTitles` (kept separately for legacy
+  // display reasons predating this field).
+  filters   Json?
+  status    LeadSearchJobStatus @default(RUNNING)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  results LeadSearchResult[]
+
+  @@index([userId, createdAt])
+  @@map("lead_search_jobs")
+}
+
+// One row per Apollo candidate. Inserted as "pending" as soon as People
+// Search returns a candidate (so polling shows the row immediately), then
+// updated in place once People Enrichment reveals the real contact details
+// — this is what makes the frontend's progressive "Enriching next lead…"
+// table real rather than simulated.
+model LeadSearchResult {
+  id             String        @id @default(uuid()) @db.Uuid
+  jobId          String        @db.Uuid @map("job_id")
+  job            LeadSearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  apolloPersonId String        @map("apollo_person_id")
+
+  name     String?
+  title    String?
+  company  String?
+  linkedin String?
+  email    String?
+  // "pending" | "enriched" | "failed" | "skipped" (never reached before the
+  // job was cancelled) — not an enum since these are purely this row's own
+  // lifecycle, not shared elsewhere the way CompanyType is.
+  status   String   @default("pending")
+  // The user's own triage of this lead once enriched — "new" | "approved" |
+  // "skipped". Deliberately a separate field from `status` above: `status`
+  // is this row's enrichment pipeline state, `reviewStatus` is a manual
+  // decision the user makes afterward. Conflating them would make an
+  // enrichment-cancelled row indistinguishable from a lead the user
+  // reviewed and skipped on purpose.
+  reviewStatus String @default("new") @map("review_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([jobId])
+  @@map("lead_search_results")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Compliance & audit
+// ─────────────────────────────────────────────────────────────────────────
+
+// Append-only. Application code must never update or delete rows here —
+// only insert. This is what "audit trail of every important action" means
+// in practice.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Nullable: some actions are system-initiated (e.g. a webhook-driven
+  // subscription expiry), not performed by a logged-in user.
+  actorUserId String? @db.Uuid @map("actor_user_id")
+  actor       User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  // e.g. "auth.login", "auth.password_reset", "admin.user.suspend",
+  // "subscription.canceled", "billing.payment_failed"
+  action     String
+  targetType String? @map("target_type")
+  targetId   String? @map("target_id")
+
+  metadata  Json?
+  ipAddress String? @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+// GDPR / ToS acceptance tracking — records exactly which version of which
+// document a user accepted and when, matching the "Last updated" date shown
+// on the public /terms and /privacy pages.
+model ConsentRecord {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  documentType ConsentDocumentType @map("document_type")
+  version      String
+  ipAddress    String?             @map("ip_address")
+  acceptedAt   DateTime            @default(now()) @map("accepted_at")
+
+  @@index([userId, documentType])
+  @@map("consent_records")
+}
+
+enum ContactReason {
+  BILLING
+  ACCOUNT_ISSUE
+  REMOVE_RECORD
+  OTHER
+}
+
+// A /contact submission — persisted in addition to the existing email
+// notification (see EmailService.sendContactFormMessage) so admins have a
+// durable, searchable record beyond whatever lands in the SUPPORT_EMAIL
+// inbox, and can mark one as handled.
+model ContactMessage {
+  id     String        @id @default(uuid()) @db.Uuid
+  name   String
+  email  String
+  reason ContactReason @default(OTHER)
+
+  message  String
+  resolved Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([resolved, createdAt])
+  @@map("contact_messages")
+}

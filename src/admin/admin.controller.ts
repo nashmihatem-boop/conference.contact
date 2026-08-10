@@ -1,0 +1,181 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import type { AccessTokenPayload } from '../auth/types/jwt-payload.interface';
+import { Role } from '../../generated/prisma/enums';
+import { AdminService } from './admin.service';
+import { ListAuditLogsQueryDto } from './dto/list-audit-logs-query.dto';
+import { ListFlaggedSessionsQueryDto } from './dto/list-flagged-sessions-query.dto';
+import { ListSubscriptionsQueryDto } from './dto/list-subscriptions-query.dto';
+import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { SuspendUserDto } from './dto/suspend-user.dto';
+import { CreateLeadDto } from '../leads/dto/create-lead.dto';
+import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
+import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
+import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-messages-query.dto';
+
+/** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
+@ApiTags('admin')
+@UseGuards(RolesGuard)
+@Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@Controller('admin')
+export class AdminController {
+  constructor(private readonly admin: AdminService) {}
+
+  @Get('users')
+  listUsers(@Query() query: ListUsersQueryDto) {
+    return this.admin.listUsers(query);
+  }
+
+  @Get('users/:id')
+  getUser(@Param('id') id: string) {
+    return this.admin.getUser(id);
+  }
+
+  @Get('users/:id/sessions')
+  getUserSessions(@Param('id') id: string) {
+    return this.admin.getUserSessions(id);
+  }
+
+  @Post('users/:id/suspend')
+  suspendUser(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: SuspendUserDto,
+  ) {
+    return this.admin.suspendUser(admin.sub, id, dto.reason);
+  }
+
+  @Post('users/:id/reactivate')
+  reactivateUser(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.reactivateUser(admin.sub, id);
+  }
+
+  @Post('users/:id/send-password-reset')
+  sendPasswordReset(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.sendPasswordReset(admin.sub, id);
+  }
+
+  @Delete('users/:id')
+  deleteUser(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.deleteUser(admin.sub, id);
+  }
+
+  @Post('users/:id/force-logout')
+  forceLogout(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.forceLogout(admin.sub, id);
+  }
+
+  @Post('users/:id/impersonate')
+  impersonateUser(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.impersonateUser(admin.sub, id);
+  }
+
+  @Get('subscriptions')
+  listSubscriptions(@Query() query: ListSubscriptionsQueryDto) {
+    return this.admin.listSubscriptions(query);
+  }
+
+  @Get('lead-finder-subscriptions')
+  listLeadFinderSubscriptions(@Query() query: ListSubscriptionsQueryDto) {
+    return this.admin.listLeadFinderSubscriptions(query);
+  }
+
+  @Get('billing/monthly')
+  getMonthlyRevenue() {
+    return this.admin.getMonthlyRevenue();
+  }
+
+  @Get('audit-logs')
+  listAuditLogs(@Query() query: ListAuditLogsQueryDto) {
+    return this.admin.listAuditLogs(query);
+  }
+
+  @Get('security/sessions')
+  listFlaggedSessions(@Query() query: ListFlaggedSessionsQueryDto) {
+    return this.admin.listFlaggedSessions(query);
+  }
+
+  @Get('leads')
+  listLeads(@Query() query: ListLeadsQueryDto) {
+    return this.admin.listLeads(query);
+  }
+
+  @Get('leads/filters')
+  getLeadFilters() {
+    return this.admin.getLeadFilters();
+  }
+
+  @Post('leads')
+  createLead(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: CreateLeadDto,
+  ) {
+    return this.admin.createLead(admin.sub, dto);
+  }
+
+  @Patch('leads/:id')
+  updateLead(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateLeadDto,
+  ) {
+    return this.admin.updateLead(admin.sub, id, dto);
+  }
+
+  @Post('leads/:id/approve')
+  approveLead(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.approveLead(admin.sub, id);
+  }
+
+  @Delete('leads/:id')
+  deleteLead(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.deleteLead(admin.sub, id);
+  }
+
+  @Get('contact-messages')
+  listContactMessages(@Query() query: ListContactMessagesQueryDto) {
+    return this.admin.listContactMessages(query);
+  }
+
+  @Post('contact-messages/:id/resolve')
+  resolveContactMessage(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.resolveContactMessage(admin.sub, id);
+  }
+}
