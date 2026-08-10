@@ -117,6 +117,26 @@ export class EmailService {
   }
 
   /**
+   * Fires exactly once — from checkout.session.completed, the moment a new
+   * subscription is actually paid for. Distinct from sendRenewalReminder
+   * (sent *before* a future charge) and from the sync logic that also runs
+   * on every later renewal/update, which must never re-fire this.
+   */
+  async sendSubscriptionConfirmed(
+    to: string,
+    productLabel: string,
+    amountCents: number,
+    renewsAt: Date,
+  ): Promise<void> {
+    await this.enqueue('subscription-confirmed', {
+      to,
+      productLabel,
+      amountCents,
+      renewsAt: renewsAt.toISOString(),
+    });
+  }
+
+  /**
    * Sent the moment a renewal charge first fails (invoice.payment_failed /
    * a subscription's first transition to PAST_DUE) — without this, a
    * customer's only signal that their card was declined is silently losing

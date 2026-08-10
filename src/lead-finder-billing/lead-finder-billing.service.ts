@@ -194,6 +194,7 @@ export class LeadFinderBillingService {
         const stripeSub =
           await this.stripe.client.subscriptions.retrieve(stripeSubscriptionId);
         await this.syncFromStripe(stripeSub);
+        await this.sendSubscriptionConfirmedEmail(stripeSub);
         break;
       }
 
@@ -309,6 +310,34 @@ export class LeadFinderBillingService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Only ever called from the checkout.session.completed case — that event
+   * fires exactly once per new subscription, unlike this same Stripe
+   * subscription object also flowing through customer.subscription.updated
+   * on every later renewal, which must never re-send this.
+   */
+  private async sendSubscriptionConfirmedEmail(
+    stripeSub: Stripe.Subscription,
+  ): Promise<void> {
+    const userId = stripeSub.metadata?.userId;
+    const tierId = stripeSub.metadata?.tierId;
+    if (!userId || !tierId) return;
+
+    const [user, tier] = await Promise.all([
+      this.users.findById(userId),
+      this.prisma.leadFinderTier.findUnique({ where: { id: tierId } }),
+    ]);
+    if (!user || !tier) return;
+
+    const item = stripeSub.items.data[0];
+    await this.email.sendSubscriptionConfirmed(
+      user.email,
+      `AI Lead Finder — ${tier.name}`,
+      tier.amountCents,
+      new Date(item.current_period_end * 1000),
+    );
   }
 
   /**

@@ -37,6 +37,12 @@ interface InviteData {
   to: string;
   inviterName: string;
 }
+interface SubscriptionConfirmedData {
+  to: string;
+  productLabel: string;
+  amountCents: number;
+  renewsAt: string;
+}
 interface RenewalReminderData {
   to: string;
   productLabel: string;
@@ -267,6 +273,31 @@ export class EmailProcessor extends WorkerHost {
                 "Full Access is $50 every 6 months, rate locked in, whenever you're ready to subscribe.",
               ),
           ),
+        );
+        return;
+      }
+      case 'subscription-confirmed': {
+        const { to, productLabel, amountCents, renewsAt } =
+          job.data as SubscriptionConfirmedData;
+        const dateLabel = new Date(renewsAt).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        const amountLabel = `$${(amountCents / 100).toFixed(2).replace(/\.00$/, '')}`;
+        const link = `${this.frontendUrl}/account/billing`;
+        await this.send(
+          to,
+          `You're subscribed — ${productLabel} confirmed`,
+          renderEmail(
+            heading("You're all set") +
+              paragraph(
+                `Your payment went through and your ${escapeHtml(productLabel)} plan is active. You were charged ${amountLabel} — it renews on <strong>${dateLabel}</strong>.`,
+              ) +
+              ctaButton(link, 'Manage your plan →') +
+              footnote('Questions about your subscription? Just reply to this email.'),
+          ),
+          this.supportEmail,
         );
         return;
       }
