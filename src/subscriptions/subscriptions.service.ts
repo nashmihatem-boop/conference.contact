@@ -183,6 +183,10 @@ export class SubscriptionsService {
             'All sales are final — this plan is billed $50 every 6 months with no refunds. You can cancel anytime from your account to stop future renewals.',
         },
       },
+      // Stripe's Managed Payments (on by default) rejects custom_text
+      // outright — the no-refund disclosure above is a real compliance
+      // requirement, not the thing to drop, so this is disabled instead.
+      managed_payments: { enabled: false },
       // Stamped on both the session and the subscription it creates —
       // checkout.session.completed carries session metadata, but
       // customer.subscription.* events only see the subscription's own

@@ -115,6 +115,8 @@ export class LeadFinderBillingService {
           message: `All sales are final — this plan is billed $${(tier.amountCents / 100).toFixed(2).replace(/\.00$/, '')} every month with no refunds. You can cancel anytime from your account to stop future renewals.`,
         },
       },
+      // Same Managed Payments conflict as SubscriptionsService.createCheckoutSession — see its comment.
+      managed_payments: { enabled: false },
       // "kind" is what tells the shared webhook handler this subscription
       // belongs to LeadFinderBillingService, not SubscriptionsService —
       // both process every event; each ignores what isn't theirs.
