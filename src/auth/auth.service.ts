@@ -151,7 +151,8 @@ export class AuthService {
     // verifyLogin() marks emailVerifiedAt itself once that code is entered.
     // The /verify-email flow (issueVerificationToken/verifyEmail) still
     // exists for whenever a future "change your email" feature needs it.
-    await this.email.sendWelcomeEmail(user.email, user.fullName);
+    // The welcome email itself now fires from issueTokenPair() on this
+    // account's actual first sign-in, not here — see its comment.
     await this.audit.record({
       actorUserId: user.id,
       action: 'auth.register',
@@ -790,6 +791,9 @@ export class AuthService {
   ): Promise<TokenPair> {
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException();
+    // lastLoginAt is only ever null before the very first successful
+    // sign-in — updateLastLogin() below sets it every time after this.
+    const isFirstLogin = user.lastLoginAt === null;
 
     const geo = this.geoip.lookup(meta.ipAddress);
     const risk = await this.risk.assess({
@@ -819,6 +823,14 @@ export class AuthService {
     ]);
 
     await this.users.updateLastLogin(user.id);
+    // Fires here — this account's actual first sign-in — not at register(),
+    // which only ever creates the row and never guarantees anyone signs in
+    // right after (an admin-invited or abandoned signup would otherwise
+    // still get a "your account is ready" email for an account nobody's
+    // ever opened).
+    if (isFirstLogin) {
+      await this.email.sendWelcomeEmail(user.email, user.fullName);
+    }
     await this.audit.record({
       actorUserId: user.id,
       action: 'auth.login',

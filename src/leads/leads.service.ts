@@ -87,7 +87,7 @@ const CSV_COLUMNS = [
 export class LeadsService {
   private readonly logger = new Logger(LeadsService.name);
   private readonly maxResultsPerSearch: number;
-  /** Accounts with no active/trialing/past-due paid Lead Finder plan (LeadFinderSubscription) are capped to this many *new* searches per calendar day — "get more leads" on an existing search is blocked outright for them instead of counting separately. */
+  /** Accounts with no paid Lead Finder access (see hasPaidLeadFinderAccess) are capped to this many *new* searches per calendar day — "get more leads" on an existing search is blocked outright for them instead of counting separately. */
   private readonly freeTierMaxSearchesPerDay = 3;
   /** ...and each of those searches returns at most this many results, regardless of remaining credit balance. */
   private readonly freeTierMaxResultsPerSearch = 3;
@@ -207,18 +207,29 @@ export class LeadsService {
   }
 
   /**
-   * A "paid tier" means an ACTIVE/TRIALING LeadFinderSubscription, or a
-   * PAST_DUE one still inside its grace period — same policy as the
-   * Directory plan's hasActiveAccess, so a failed Lead Finder charge
-   * doesn't grant free-tier-bypass privileges forever. Admin accounts
-   * count as paid-tier here too, per isAdminAccount above.
+   * "Paid" bypasses the free-tier per-search/per-day caps below — it means
+   * either an ACTIVE/TRIALING LeadFinderSubscription (a PAST_DUE one still
+   * inside its grace period counts too, same policy as the Directory
+   * plan's hasActiveAccess so a failed charge doesn't grant a free pass
+   * forever), OR having ever bought a one-time credit pack. Without the
+   * latter, someone who paid for 500+ credits would still be throttled to
+   * 3 results/day like they'd never paid anything — the whole point of a
+   * credit pack is spending it faster than that. Admin accounts count as
+   * paid here too, per isAdminAccount above.
    */
-  private async hasPaidLeadFinderTier(userId: string): Promise<boolean> {
+  private async hasPaidLeadFinderAccess(userId: string): Promise<boolean> {
     if (await this.isAdminAccount(userId)) return true;
-    const subscription = await this.prisma.leadFinderSubscription.findFirst({
-      where: { userId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
-      select: { status: true, pastDueSince: true },
-    });
+    const [subscription, creditPurchase] = await Promise.all([
+      this.prisma.leadFinderSubscription.findFirst({
+        where: { userId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
+        select: { status: true, pastDueSince: true },
+      }),
+      this.prisma.creditGrant.findFirst({
+        where: { userId, source: 'CREDIT_PACK_PURCHASE' },
+        select: { id: true },
+      }),
+    ]);
+    if (creditPurchase) return true;
     if (!subscription) return false;
     return hasActiveAccess(subscription, this.gracePeriodDays);
   }
@@ -236,7 +247,7 @@ export class LeadsService {
     maxSearchesPerDay: number;
     searchesRemainingToday: number | null;
   }> {
-    const isPaidTier = await this.hasPaidLeadFinderTier(userId);
+    const isPaidTier = await this.hasPaidLeadFinderAccess(userId);
     if (isPaidTier) {
       return {
         isPaidTier: true,
@@ -697,10 +708,10 @@ export class LeadsService {
       );
     }
 
-    const isPaidTier = await this.hasPaidLeadFinderTier(userId);
-    if (!isPaidTier) {
+    const hasPaidAccess = await this.hasPaidLeadFinderAccess(userId);
+    if (!hasPaidAccess) {
       throw new ForbiddenException(
-        'Upgrade to a paid plan to get more leads per search — the free plan is capped at 3 results per search.',
+        'Buy a credit pack or upgrade to a paid plan to get more leads per search — the free plan is capped at 3 results per search.',
       );
     }
 

@@ -91,5 +91,5 @@ export const envValidationSchema = Joi.object({
   // Hard cap on candidates enriched per single "Find leads" run — each
   // enrichment call spends a real Apollo credit, so one query should never
   // be able to silently burn the whole remaining monthly allowance.
-  LEAD_SEARCH_MAX_RESULTS: Joi.number().integer().min(1).default(25),
+  LEAD_SEARCH_MAX_RESULTS: Joi.number().integer().min(1).default(50),
 });
