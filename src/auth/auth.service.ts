@@ -109,36 +109,16 @@ export class AuthService {
     }
 
     const passwordHash = await argon2.hash(dto.password, ARGON2_OPTIONS);
-    const normalizedEmail = this.users.normalizeEmail(dto.email);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      // An admin-initiated invite (see AdminService.inviteUser) pre-assigns
-      // a role and/or Directory access to a specific email — this is where
-      // that promise is actually kept, at the moment the real person
-      // completes real registration (their own password, real ToS/Privacy
-      // consent below), not by an admin fabricating an account for them.
-      const accessInvite = await tx.adminAccessInvite.findFirst({
-        where: { email: normalizedEmail, status: 'PENDING' },
-      });
-
       const created = await tx.user.create({
         data: {
-          email: normalizedEmail,
+          email: this.users.normalizeEmail(dto.email),
           fullName: dto.fullName,
           passwordHash,
           phone: dto.phone,
-          ...(accessInvite && {
-            role: accessInvite.role,
-            adminGrantedDirectoryAccess: accessInvite.grantDirectoryAccess,
-          }),
         },
       });
-      if (accessInvite) {
-        await tx.adminAccessInvite.update({
-          where: { id: accessInvite.id },
-          data: { status: 'ACCEPTED', acceptedAt: new Date() },
-        });
-      }
       await tx.consentRecord.createMany({
         data: [
           {

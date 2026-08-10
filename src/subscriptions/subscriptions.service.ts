@@ -237,15 +237,11 @@ export class SubscriptionsService {
       this.users.findById(userId),
     ]);
     const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
-    // See User.adminGrantedDirectoryAccess — a comp independent of the
-    // Subscription table, so it forces hasDirectoryAccess the same way the
-    // admin-role bypass above does.
-    const isComped = user?.adminGrantedDirectoryAccess ?? false;
 
     if (!subscription) {
       return {
         status: 'NONE' as const,
-        hasDirectoryAccess: isAdmin || isComped,
+        hasDirectoryAccess: isAdmin,
       };
     }
 
@@ -255,9 +251,7 @@ export class SubscriptionsService {
       currentPeriodEnd: subscription.currentPeriodEnd,
       cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       hasDirectoryAccess:
-        isAdmin ||
-        isComped ||
-        hasDirectoryAccess(subscription, this.gracePeriodDays),
+        isAdmin || hasDirectoryAccess(subscription, this.gracePeriodDays),
       daysPastDue: daysPastDue(subscription.pastDueSince),
     };
   }
