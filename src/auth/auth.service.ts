@@ -145,11 +145,12 @@ export class AuthService {
       return created;
     });
 
-    await this.issueVerificationToken(
-      user.id,
-      user.email,
-      'EMAIL_VERIFICATION',
-    );
+    // No separate "verify your email" link — the new-device code every
+    // fresh signup goes through right after this (see loginAndGoToCheckout
+    // on the frontend) already proves inbox ownership just as well, and
+    // verifyLogin() marks emailVerifiedAt itself once that code is entered.
+    // The /verify-email flow (issueVerificationToken/verifyEmail) still
+    // exists for whenever a future "change your email" feature needs it.
     await this.email.sendWelcomeEmail(user.email, user.fullName);
     await this.audit.record({
       actorUserId: user.id,
@@ -348,6 +349,15 @@ export class AuthService {
         ipAddress: meta.ipAddress,
       });
       throw new UnauthorizedException('Invalid code');
+    }
+
+    // For EMAIL_CODE specifically, successfully entering it is proof this
+    // person controls the inbox — exactly what the separate /verify-email
+    // link otherwise establishes, so this doubles as that for accounts
+    // that never clicked it (every fresh signup, since register() no
+    // longer sends that link at all).
+    if (payload.method === 'EMAIL_CODE' && !user.emailVerifiedAt) {
+      await this.users.markEmailVerified(user.id);
     }
 
     // Reaching login/verify at all means a challenge was required, which
