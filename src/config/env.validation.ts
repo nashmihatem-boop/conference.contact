@@ -61,7 +61,9 @@ export const envValidationSchema = Joi.object({
   LOGIN_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
   LOGIN_LOCKOUT_MINUTES: Joi.number().integer().min(1).default(15),
 
-  // Cap on trusted devices per account (anti-account-sharing foundation).
+  // Cap on concurrent active sessions per account — signing in on a device
+  // past this limit auto-signs-out the account's oldest session. The real
+  // anti-account-sharing enforcement (see SessionsService.enforceLimit).
   MAX_TRUSTED_DEVICES: Joi.number().integer().min(1).default(3),
 
   // A login's risk score (RiskService) at or above this writes a distinct

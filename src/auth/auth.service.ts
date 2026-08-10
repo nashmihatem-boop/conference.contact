@@ -788,6 +788,11 @@ export class AuthService {
       failedLoginCount: user.failedLoginCount,
     });
 
+    // Enforced here, not inside sessions.create() — that method is shared
+    // with refresh-token rotation, which continues an existing session
+    // rather than starting a new one and must never evict anything.
+    await this.sessions.enforceLimit(user.id);
+
     const [accessToken, sessionResult] = await Promise.all([
       this.signAccessToken(user.id, user.email, user.role),
       this.sessions.create({

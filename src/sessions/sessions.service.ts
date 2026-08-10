@@ -23,6 +23,7 @@ export interface CreateSessionInput {
 @Injectable()
 export class SessionsService {
   private readonly refreshExpiryDays: number;
+  private readonly maxConcurrentSessions: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -33,6 +34,32 @@ export class SessionsService {
       'REFRESH_TOKEN_EXPIRY_DAYS',
       30,
     );
+    this.maxConcurrentSessions = this.config.get<number>(
+      'MAX_TRUSTED_DEVICES',
+      3,
+    );
+  }
+
+  /**
+   * Called on every real login (not on refresh-token rotation — that's the
+   * same session continuing, not a new device) before the new session is
+   * created. If the account is already at the concurrent-session cap, signs
+   * out its oldest session to make room, rather than blocking the new
+   * login outright — the point is capping how many devices can be
+   * simultaneously logged in, not annoying the account's real owner.
+   */
+  async enforceLimit(userId: string): Promise<void> {
+    const active = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const overBy = active.length - this.maxConcurrentSessions + 1;
+    if (overBy <= 0) return;
+    await this.prisma.session.updateMany({
+      where: { id: { in: active.slice(0, overBy).map((s) => s.id) } },
+      data: { revokedAt: new Date() },
+    });
   }
 
   /** Returns the raw token exactly once — callers must put it in the cookie and never persist it themselves. */
