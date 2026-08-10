@@ -25,6 +25,7 @@ import { CreateLeadDto } from '../leads/dto/create-lead.dto';
 import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
 import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
 import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-messages-query.dto';
+import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
 @ApiTags('admin')
@@ -177,5 +178,22 @@ export class AdminController {
     @Param('id') id: string,
   ) {
     return this.admin.resolveContactMessage(admin.sub, id);
+  }
+
+  @Delete('contact-messages/:id')
+  deleteContactMessage(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.admin.deleteContactMessage(admin.sub, id);
+  }
+
+  @Post('contact-messages/:id/reply')
+  replyToContactMessage(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: ReplyContactMessageDto,
+  ) {
+    return this.admin.replyToContactMessage(admin.sub, id, dto);
   }
 }

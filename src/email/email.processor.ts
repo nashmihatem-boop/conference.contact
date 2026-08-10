@@ -27,6 +27,12 @@ interface ContactFormData {
   reason: string;
   message: string;
 }
+interface ContactReplyData {
+  to: string;
+  name: string;
+  originalMessage: string;
+  replyMessage: string;
+}
 interface InviteData {
   to: string;
   inviterName: string;
@@ -221,6 +227,26 @@ export class EmailProcessor extends WorkerHost {
                </div>`,
           ),
           fromEmail,
+        );
+        return;
+      }
+      case 'contact-reply': {
+        const { to, name, originalMessage, replyMessage } =
+          job.data as ContactReplyData;
+        const firstName = escapeHtml(name.trim().split(/\s+/)[0] || 'there');
+        await this.send(
+          to,
+          'Re: your message to conference.contact',
+          renderEmail(
+            heading(`Hi ${firstName},`) +
+              `<div style="margin-top:16px;text-align:left;font-size:15px;color:#5b5f73;line-height:1.6;white-space:pre-wrap;">${escapeHtml(replyMessage)}</div>` +
+              `<div style="margin-top:28px;padding-top:20px;border-top:1px solid #e2e2e7;text-align:left;">
+                 <p style="margin:0;font-size:12px;font-weight:700;color:#9395a6;text-transform:uppercase;letter-spacing:0.03em;">Your original message</p>
+                 <p style="margin:8px 0 0;font-size:13px;color:#9395a6;line-height:1.6;white-space:pre-wrap;">${escapeHtml(originalMessage)}</p>
+               </div>` +
+              footnote('Questions? Just reply to this email.'),
+          ),
+          this.supportEmail,
         );
         return;
       }

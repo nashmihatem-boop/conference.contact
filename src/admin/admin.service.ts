@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
+import { EmailService } from '../email/email.service';
 import { TokenRevocationService } from '../common/token-revocation/token-revocation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -23,6 +24,7 @@ import { CreateLeadDto } from '../leads/dto/create-lead.dto';
 import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
 import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
 import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-messages-query.dto';
+import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
 
 const LEAD_SELECT = {
   id: true,
@@ -97,6 +99,7 @@ export class AdminService {
     private readonly revocation: TokenRevocationService,
     private readonly config: ConfigService,
     private readonly authService: AuthService,
+    private readonly email: EmailService,
   ) {
     this.gracePeriodDays = this.config.get<number>(
       'PAYMENT_GRACE_PERIOD_DAYS',
@@ -107,8 +110,12 @@ export class AdminService {
   // ── Users ────────────────────────────────────────────────────────────
 
   async listUsers(query: ListUsersQueryDto): Promise<Page<unknown>> {
+    // Deleted accounts stay out of the default view — real data, but not
+    // something that should clutter the list every admin loading this page
+    // has to scroll past. Explicitly filtering by "Deleted" (or any other
+    // status) still finds them; only the unfiltered default excludes them.
     const where: Prisma.UserWhereInput = {
-      status: query.status,
+      status: query.status ?? { not: 'DELETED' },
       role: query.role,
       ...(query.search && {
         OR: [
@@ -884,5 +891,60 @@ export class AdminService {
     });
 
     return { message: 'Marked as resolved' };
+  }
+
+  /**
+   * A submitted contact form message has no dependents in the schema (see
+   * the ContactMessage model comment) and no billing/legal retention
+   * requirement like a user account does — a hard delete is the right
+   * "remove this" here, not a soft-delete pattern.
+   */
+  async deleteContactMessage(
+    adminUserId: string,
+    id: string,
+  ): Promise<{ message: string }> {
+    const existing = await this.prisma.contactMessage.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Contact message not found');
+
+    await this.prisma.contactMessage.delete({ where: { id } });
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.contact_message_deleted',
+      targetType: 'ContactMessage',
+      targetId: id,
+    });
+
+    return { message: 'Message deleted' };
+  }
+
+  /** Sends the admin's reply to the original sender's email — the same address the message came in on, not a copy stored in-app. */
+  async replyToContactMessage(
+    adminUserId: string,
+    id: string,
+    dto: ReplyContactMessageDto,
+  ): Promise<{ message: string }> {
+    const existing = await this.prisma.contactMessage.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, message: true },
+    });
+    if (!existing) throw new NotFoundException('Contact message not found');
+
+    await this.email.sendContactMessageReply(
+      existing.email,
+      existing.name,
+      existing.message,
+      dto.message,
+    );
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.contact_message_replied',
+      targetType: 'ContactMessage',
+      targetId: id,
+    });
+
+    return { message: `Reply sent to ${existing.email}.` };
   }
 }

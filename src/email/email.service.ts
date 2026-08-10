@@ -75,6 +75,21 @@ export class EmailService {
     await this.enqueue('contact-form', { name, fromEmail, reason, message });
   }
 
+  /** An admin's reply to a /contact submission — goes to the original sender's address, quoting what they sent. */
+  async sendContactMessageReply(
+    to: string,
+    name: string,
+    originalMessage: string,
+    replyMessage: string,
+  ): Promise<void> {
+    await this.enqueue('contact-reply', {
+      to,
+      name,
+      originalMessage,
+      replyMessage,
+    });
+  }
+
   /** A colleague invited to sign up for their own account — never grants access to the inviter's subscription. */
   async sendInviteEmail(to: string, inviterName: string): Promise<void> {
     await this.enqueue('invite', { to, inviterName });
