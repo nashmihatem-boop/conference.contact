@@ -90,6 +90,29 @@ export class EmailService {
     });
   }
 
+  /** An admin-provisioned account (see AdminService.inviteUser) — the recipient still creates their own password and consents to ToS/Privacy on the normal signup form; this just points them at it. */
+  async sendAdminAccessInvite(
+    to: string,
+    grantsDirectoryAccess: boolean,
+  ): Promise<void> {
+    await this.enqueue('admin-access-invite', {
+      to,
+      grantsDirectoryAccess: grantsDirectoryAccess ? 'true' : 'false',
+    });
+  }
+
+  /** Admin-triggered nudge to a signed-up user who's never bought the Directory subscription — see AdminService.pitchProspect. */
+  async sendProspectPitch(
+    to: string,
+    fullName: string,
+    template: 'INTRO' | 'VALUE' | 'URGENCY',
+  ): Promise<void> {
+    await this.enqueue(`prospect-pitch-${template.toLowerCase()}`, {
+      to,
+      fullName,
+    });
+  }
+
   /** A colleague invited to sign up for their own account — never grants access to the inviter's subscription. */
   async sendInviteEmail(to: string, inviterName: string): Promise<void> {
     await this.enqueue('invite', { to, inviterName });

@@ -49,13 +49,24 @@ export class SubscriptionGuard implements CanActivate {
     // DB round-trip needed.
     if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') return true;
 
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        userId: user.sub,
-        status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [subscription, dbUser] = await Promise.all([
+      this.prisma.subscription.findFirst({
+        where: {
+          userId: user.sub,
+          status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Admin-comped access (see User.adminGrantedDirectoryAccess) —
+      // independent of the Subscription table entirely, so it has to be
+      // checked here regardless of what the query above found.
+      this.prisma.user.findUnique({
+        where: { id: user.sub },
+        select: { adminGrantedDirectoryAccess: true },
+      }),
+    ]);
+
+    if (dbUser?.adminGrantedDirectoryAccess) return true;
 
     if (!subscription || !hasActiveAccess(subscription, this.gracePeriodDays)) {
       throw new ForbiddenException(

@@ -25,6 +25,10 @@ import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
 import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
 import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-messages-query.dto';
 import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
+import { InviteUserDto } from './dto/invite-user.dto';
+import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
+import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
+import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 const LEAD_SELECT = {
   id: true,
@@ -79,6 +83,7 @@ const USER_LIST_SELECT = {
   lastLoginAt: true,
   createdAt: true,
   leadFinderCredits: true,
+  adminGrantedDirectoryAccess: true,
 } satisfies Prisma.UserSelect;
 
 export interface Page<T> {
@@ -465,6 +470,181 @@ export class AdminService {
     });
 
     return { accessToken, targetEmail: target.email };
+  }
+
+  /**
+   * Provisions access for an email that doesn't have an account yet,
+   * without an admin ever setting a password on someone else's behalf —
+   * the invited person still completes the real signup flow (their own
+   * password, real ToS/Privacy consent) and register() applies the role
+   * and Directory-access grant recorded here the moment they do. If the
+   * email already has an account, use setDirectoryAccess on that user
+   * directly instead — this is only for people who haven't signed up yet.
+   */
+  async inviteUser(
+    adminUserId: string,
+    dto: InviteUserDto,
+  ): Promise<{ message: string }> {
+    const email = dto.email.trim().toLowerCase();
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existingUser) {
+      throw new BadRequestException(
+        'This email already has an account — grant or revoke Directory access on their existing user instead.',
+      );
+    }
+
+    // Resend rather than duplicate: an admin retrying (or re-inviting with
+    // different options) updates the one still-pending row instead of
+    // piling up rows that'd all race to be "the" match in register().
+    const pending = await this.prisma.adminAccessInvite.findFirst({
+      where: { email, status: 'PENDING' },
+      select: { id: true },
+    });
+    const inviteData = {
+      invitedByUserId: adminUserId,
+      role: dto.role ?? 'USER',
+      grantDirectoryAccess: dto.grantDirectoryAccess ?? true,
+    };
+    if (pending) {
+      await this.prisma.adminAccessInvite.update({
+        where: { id: pending.id },
+        data: inviteData,
+      });
+    } else {
+      await this.prisma.adminAccessInvite.create({
+        data: { ...inviteData, email },
+      });
+    }
+
+    await this.email.sendAdminAccessInvite(
+      email,
+      dto.grantDirectoryAccess ?? true,
+    );
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.user_invited',
+      metadata: {
+        email,
+        role: dto.role ?? 'USER',
+        grantDirectoryAccess: dto.grantDirectoryAccess ?? true,
+      },
+    });
+
+    return { message: `Invite sent to ${email}.` };
+  }
+
+  /** Toggles the Stripe-independent comp flag on an existing account — see User.adminGrantedDirectoryAccess. */
+  async setDirectoryAccess(
+    adminUserId: string,
+    targetUserId: string,
+    dto: SetDirectoryAccessDto,
+  ): Promise<{ message: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { adminGrantedDirectoryAccess: dto.granted },
+    });
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: dto.granted
+        ? 'admin.directory_access_granted'
+        : 'admin.directory_access_revoked',
+      targetType: 'User',
+      targetId: targetUserId,
+    });
+
+    return {
+      message: dto.granted
+        ? `Directory access granted to ${target.email}.`
+        : `Directory access revoked for ${target.email}.`,
+    };
+  }
+
+  /**
+   * Signed-up accounts that have never once bought the Directory
+   * subscription — real prospects, not people who paid and later
+   * canceled. Excludes staff accounts (nothing to pitch them) and anyone
+   * already comped via adminGrantedDirectoryAccess (already converted, in
+   * the sense that matters here — no subscription needed, so re-pitching
+   * them is noise). Oldest signup first: the longest someone has sat
+   * without buying is the strongest signal they're worth reaching out to.
+   */
+  async listProspects(query: ListProspectsQueryDto): Promise<Page<unknown>> {
+    const where: Prisma.UserWhereInput = {
+      status: 'ACTIVE',
+      role: { in: ['USER', 'PREMIUM'] },
+      adminGrantedDirectoryAccess: false,
+      subscriptions: { none: {} },
+      ...(query.search && {
+        OR: [
+          { email: { contains: query.search, mode: 'insensitive' } },
+          { fullName: { contains: query.search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          createdAt: true,
+          lastLoginAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const now = Date.now();
+    const enriched = data.map((user) => ({
+      ...user,
+      daysSinceSignup: Math.floor(
+        (now - user.createdAt.getTime()) / (24 * 60 * 60 * 1000),
+      ),
+    }));
+
+    return { data: enriched, page: query.page, pageSize: query.pageSize, total };
+  }
+
+  async pitchProspect(
+    adminUserId: string,
+    targetUserId: string,
+    dto: PitchProspectDto,
+  ): Promise<{ message: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true, fullName: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    await this.email.sendProspectPitch(
+      target.email,
+      target.fullName,
+      dto.template,
+    );
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.prospect_pitched',
+      targetType: 'User',
+      targetId: targetUserId,
+      metadata: { template: dto.template },
+    });
+
+    return { message: `${dto.template} pitch sent to ${target.email}.` };
   }
 
   // ── Subscriptions ────────────────────────────────────────────────────

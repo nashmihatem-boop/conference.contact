@@ -37,6 +37,14 @@ interface InviteData {
   to: string;
   inviterName: string;
 }
+interface AdminAccessInviteData {
+  to: string;
+  grantsDirectoryAccess: string;
+}
+interface ProspectPitchData {
+  to: string;
+  fullName: string;
+}
 interface RenewalReminderData {
   to: string;
   productLabel: string;
@@ -267,6 +275,98 @@ export class EmailProcessor extends WorkerHost {
                 "Full Access is $50 every 6 months, rate locked in, whenever you're ready to subscribe.",
               ),
           ),
+        );
+        return;
+      }
+      case 'admin-access-invite': {
+        const { to, grantsDirectoryAccess } = job.data as AdminAccessInviteData;
+        const link = `${this.frontendUrl}/signup?email=${encodeURIComponent(to)}`;
+        await this.send(
+          to,
+          "You've been invited to conference.contact",
+          renderEmail(
+            heading("You've been invited to conference.contact") +
+              paragraph(
+                grantsDirectoryAccess === 'true'
+                  ? "You've been given full access to the Lead Directory — no subscription needed. Create your account to get started."
+                  : 'An account has been set up for you. Create your account to get started.',
+              ) +
+              ctaButton(link, 'Create your account →') +
+              footnote('Questions? Just reply to this email.'),
+          ),
+          this.supportEmail,
+        );
+        return;
+      }
+      case 'prospect-pitch-intro': {
+        const { to, fullName } = job.data as ProspectPitchData;
+        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const link = `${this.frontendUrl}/account/billing`;
+        await this.send(
+          to,
+          'Still there? Your conference.contact directory is ready',
+          renderEmail(
+            heading(`${firstName}, here's what's waiting for you`) +
+              paragraph(
+                "You created a conference.contact account but haven't unlocked the full Lead Directory yet — a hand-verified list of who actually shows up to the B2B conference circuit, with real emails, phone numbers, and LinkedIn profiles.",
+              ) +
+              ctaButton(link, 'Unlock full access →') +
+              footnote(
+                '$50 every 6 months, rate locked in for as long as you stay subscribed. Cancel anytime.',
+              ),
+          ),
+          this.supportEmail,
+        );
+        return;
+      }
+      case 'prospect-pitch-value': {
+        const { to, fullName } = job.data as ProspectPitchData;
+        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const link = `${this.frontendUrl}/account/billing`;
+        const features = [
+          'Unlimited directory searches',
+          'Full contact details — email, phone, LinkedIn',
+          'CSV export',
+          'AI Lead Finder credits included',
+        ];
+        await this.send(
+          to,
+          'What you get with full Directory access',
+          renderEmail(
+            heading(`${firstName}, here's exactly what unlocks`) +
+              `<ul style="margin:20px 0 0;padding:0;list-style:none;text-align:left;">
+                 ${features
+                   .map(
+                     (item) =>
+                       `<li style="margin-top:10px;padding-left:24px;position:relative;font-size:14px;color:#5b5f73;line-height:1.5;">
+                          <span style="position:absolute;left:0;color:#0b1454;font-weight:700;">✓</span>${escapeHtml(item)}
+                        </li>`,
+                   )
+                   .join('')}
+               </ul>` +
+              ctaButton(link, 'See full access →') +
+              footnote('$50 every 6 months. No sales calls, no tiers to compare.'),
+          ),
+          this.supportEmail,
+        );
+        return;
+      }
+      case 'prospect-pitch-urgency': {
+        const { to, fullName } = job.data as ProspectPitchData;
+        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const link = `${this.frontendUrl}/account/billing`;
+        await this.send(
+          to,
+          'Lock in your rate before it changes',
+          renderEmail(
+            heading(`${firstName}, your price locks in the moment you subscribe`) +
+              paragraph(
+                "conference.contact is still $50 every 6 months today. If we ever raise the price, everyone already subscribed keeps the rate they signed up at — so there's no upside to waiting, only downside if pricing changes later.",
+              ) +
+              ctaButton(link, 'Lock in $50/6mo →') +
+              footnote('No long-term contract — cancel anytime.'),
+          ),
+          this.supportEmail,
         );
         return;
       }
