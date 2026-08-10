@@ -88,9 +88,9 @@ export class LeadsService {
   private readonly logger = new Logger(LeadsService.name);
   private readonly maxResultsPerSearch: number;
   /** Accounts with no paid Lead Finder access (see hasPaidLeadFinderAccess) are capped to this many *new* searches per calendar day — "get more leads" on an existing search is blocked outright for them instead of counting separately. */
-  private readonly freeTierMaxSearchesPerDay = 3;
+  private readonly freeTierMaxSearchesPerDay = 4;
   /** ...and each of those searches returns at most this many results, regardless of remaining credit balance. */
-  private readonly freeTierMaxResultsPerSearch = 3;
+  private readonly freeTierMaxResultsPerSearch = 25;
   /** No-account visitors get the same daily allowance as a signed-up free-tier user, tracked per IP in Redis instead of per user row — see anonymousSearch. */
   private readonly anonymousMaxSearchesPerDay = 3;
   private readonly anonymousMaxResultsPerSearch = 3;
