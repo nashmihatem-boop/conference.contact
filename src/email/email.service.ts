@@ -42,6 +42,11 @@ export class EmailService {
     this.isProduction = this.config.get('NODE_ENV') === 'production';
   }
 
+  /** Fired alongside the verification email on register() — a separate, non-blocking send so a Resend hiccup on one never affects the other. */
+  async sendWelcomeEmail(to: string, fullName: string): Promise<void> {
+    await this.enqueue('welcome', { to, fullName });
+  }
+
   async sendVerificationEmail(to: string, token: string): Promise<void> {
     const link = `${this.frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
     this.logDevLink('Email verification link', to, link);

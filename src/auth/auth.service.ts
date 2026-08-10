@@ -150,6 +150,7 @@ export class AuthService {
       user.email,
       'EMAIL_VERIFICATION',
     );
+    await this.email.sendWelcomeEmail(user.email, user.fullName);
     await this.audit.record({
       actorUserId: user.id,
       action: 'auth.register',

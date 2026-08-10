@@ -5,6 +5,10 @@ import { Job } from 'bullmq';
 import { Resend } from 'resend';
 import { EMAIL_QUEUE } from '../queue/queue.module';
 
+interface WelcomeData {
+  to: string;
+  fullName: string;
+}
 interface VerificationData {
   to: string;
   token: string;
@@ -124,6 +128,27 @@ export class EmailProcessor extends WorkerHost {
 
   async process(job: Job): Promise<void> {
     switch (job.name) {
+      case 'welcome': {
+        const { to, fullName } = job.data as WelcomeData;
+        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const link = `${this.frontendUrl}/account`;
+        await this.send(
+          to,
+          'Welcome to conference.contact',
+          renderEmail(
+            heading(`Welcome, ${firstName}`) +
+              paragraph(
+                "Your account is ready. You've got 100 free credits to try AI Lead Finder right away — no subscription needed to start.",
+              ) +
+              ctaButton(link, 'Go to your account →') +
+              footnote(
+                'Questions about getting started? Just reply to this email.',
+              ),
+          ),
+          this.supportEmail,
+        );
+        return;
+      }
       case 'verification': {
         const { to, token } = job.data as VerificationData;
         const link = `${this.frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
