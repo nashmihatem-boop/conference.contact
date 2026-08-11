@@ -18,11 +18,24 @@ function buildConfig(gracePeriodDays = 7): ConfigService {
   return { get: () => gracePeriodDays } as unknown as ConfigService;
 }
 
+function buildPrisma(
+  subscription: unknown,
+  adminGrantedDirectoryAccess = false,
+): { prisma: PrismaService; findFirst: jest.Mock; findUnique: jest.Mock } {
+  const findFirst = jest.fn().mockResolvedValue(subscription);
+  const findUnique = jest
+    .fn()
+    .mockResolvedValue({ adminGrantedDirectoryAccess });
+  const prisma = {
+    subscription: { findFirst },
+    user: { findUnique },
+  } as unknown as PrismaService;
+  return { prisma, findFirst, findUnique };
+}
+
 describe('DirectoryAccessGuard', () => {
   it('throws UnauthorizedException when no user is on the request', async () => {
-    const prisma = {
-      subscription: { findFirst: jest.fn() },
-    } as unknown as PrismaService;
+    const { prisma } = buildPrisma(null);
     const guard = new DirectoryAccessGuard(prisma, buildConfig());
 
     await expect(guard.canActivate(buildContext(undefined))).rejects.toThrow(
@@ -45,11 +58,10 @@ describe('DirectoryAccessGuard', () => {
   });
 
   it('allows a CANCELED subscription through (permanent Directory access once paid at least once)', async () => {
-    const findFirst = jest.fn().mockResolvedValue({
+    const { prisma } = buildPrisma({
       status: 'CANCELED',
       pastDueSince: null,
     });
-    const prisma = { subscription: { findFirst } } as unknown as PrismaService;
     const guard = new DirectoryAccessGuard(prisma, buildConfig());
 
     await expect(
@@ -58,11 +70,10 @@ describe('DirectoryAccessGuard', () => {
   });
 
   it('blocks PAST_DUE once the grace period has expired', async () => {
-    const findFirst = jest.fn().mockResolvedValue({
+    const { prisma } = buildPrisma({
       status: 'PAST_DUE',
       pastDueSince: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
     });
-    const prisma = { subscription: { findFirst } } as unknown as PrismaService;
     const guard = new DirectoryAccessGuard(prisma, buildConfig(7));
 
     await expect(
@@ -71,12 +82,20 @@ describe('DirectoryAccessGuard', () => {
   });
 
   it('blocks a user with no qualifying subscription row at all', async () => {
-    const findFirst = jest.fn().mockResolvedValue(null);
-    const prisma = { subscription: { findFirst } } as unknown as PrismaService;
+    const { prisma } = buildPrisma(null);
     const guard = new DirectoryAccessGuard(prisma, buildConfig());
 
     await expect(
       guard.canActivate(buildContext({ sub: 'user_1', role: 'USER' })),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows the request through on an admin-granted comp, even with no subscription at all', async () => {
+    const { prisma } = buildPrisma(null, true);
+    const guard = new DirectoryAccessGuard(prisma, buildConfig());
+
+    await expect(
+      guard.canActivate(buildContext({ sub: 'user_1', role: 'USER' })),
+    ).resolves.toBe(true);
   });
 });

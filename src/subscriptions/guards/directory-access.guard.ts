@@ -46,13 +46,25 @@ export class DirectoryAccessGuard implements CanActivate {
     // DB round-trip needed.
     if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') return true;
 
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        userId: user.sub,
-        status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED'] },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [subscription, dbUser] = await Promise.all([
+      this.prisma.subscription.findFirst({
+        where: {
+          userId: user.sub,
+          status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Admin-comped access (see User.adminGrantedDirectoryAccess) — no
+      // Subscription row exists at all for a comped-only user, so this has
+      // to be checked independently of the query above, same as
+      // SubscriptionGuard does for the rest of the paid product.
+      this.prisma.user.findUnique({
+        where: { id: user.sub },
+        select: { adminGrantedDirectoryAccess: true },
+      }),
+    ]);
+
+    if (dbUser?.adminGrantedDirectoryAccess) return true;
 
     if (
       !subscription ||

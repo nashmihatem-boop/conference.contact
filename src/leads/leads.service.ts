@@ -492,9 +492,7 @@ export class LeadsService {
       // The UNCLASSIFIED sentinel only appears when at least one row
       // actually has no company type on file — no point offering a filter
       // that would always return zero rows.
-      companyTypes: hasUnclassified
-        ? [...realTypes, UNCLASSIFIED]
-        : realTypes,
+      companyTypes: hasUnclassified ? [...realTypes, UNCLASSIFIED] : realTypes,
       events: events.map((e) => e.likelyToAttend),
     };
   }

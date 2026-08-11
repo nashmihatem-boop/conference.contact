@@ -973,9 +973,7 @@ export class AdminService {
     const hasUnclassified = realTypes.length < companyTypes.length;
 
     return {
-      companyTypes: hasUnclassified
-        ? [...realTypes, UNCLASSIFIED]
-        : realTypes,
+      companyTypes: hasUnclassified ? [...realTypes, UNCLASSIFIED] : realTypes,
       events: events.map((e) => e.likelyToAttend),
     };
   }
