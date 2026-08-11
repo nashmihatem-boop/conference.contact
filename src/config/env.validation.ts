@@ -52,6 +52,11 @@ export const envValidationSchema = Joi.object({
   // from an access token's short-lived, per-account signature.
   UNSUBSCRIBE_SECRET: Joi.string().min(32).required(),
 
+  // CAN-SPAM requires a real physical postal address in the body of any
+  // commercial/marketing email (see BulkEmailProcessor) — not fabricated,
+  // must be the actual business address.
+  COMPANY_MAILING_ADDRESS: Joi.string().min(10).required(),
+
   RESEND_API_KEY: Joi.string().required(),
   // Where the /contact form's messages land — see ContactController.
   SUPPORT_EMAIL: Joi.string().email().required(),

@@ -6,6 +6,7 @@ import { Resend } from 'resend';
 import { BULK_EMAIL_QUEUE } from '../queue/queue.module';
 import {
   ctaButton,
+  escapeHtml,
   footnote,
   heading,
   paragraph,
@@ -35,6 +36,7 @@ export class BulkEmailProcessor extends WorkerHost {
   private readonly frontendUrl: string;
   private readonly supportEmail: string;
   private readonly unsubscribeSecret: string;
+  private readonly mailingAddress: string;
 
   constructor(private readonly config: ConfigService) {
     super();
@@ -44,6 +46,9 @@ export class BulkEmailProcessor extends WorkerHost {
     this.supportEmail = this.config.getOrThrow<string>('SUPPORT_EMAIL');
     this.unsubscribeSecret =
       this.config.getOrThrow<string>('UNSUBSCRIBE_SECRET');
+    this.mailingAddress = this.config.getOrThrow<string>(
+      'COMPANY_MAILING_ADDRESS',
+    );
   }
 
   async process(job: Job): Promise<void> {
@@ -64,6 +69,13 @@ export class BulkEmailProcessor extends WorkerHost {
               footnote(
                 'No obligation — you can create a free account just to browse.',
               ),
+            // CAN-SPAM requires a visible opt-out link and a physical
+            // mailing address in the body of any commercial email — a
+            // List-Unsubscribe header alone (below) satisfies neither.
+            `<p style="text-align:center;margin-top:12px;font-size:12px;color:#9395a6;">
+               <a href="${unsubscribeLink}" style="color:#9395a6;text-decoration:underline;">Unsubscribe</a> from emails like this.
+             </p>
+             <p style="text-align:center;margin-top:8px;font-size:11px;color:#b3b5c2;">${escapeHtml(this.mailingAddress)}</p>`,
           ),
           this.supportEmail,
           unsubscribeLink,

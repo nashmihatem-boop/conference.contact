@@ -17,9 +17,13 @@ export function escapeHtml(value: string): string {
 /**
  * Every email shares this shell (logo header, white card, footer) — `body`
  * is just the card's contents, so each email case only ever writes the
- * part that's actually different about it.
+ * part that's actually different about it. `complianceFooter` is only
+ * passed by commercial/marketing sends (see BulkEmailProcessor) that need
+ * a visible opt-out link and mailing address below the standard tagline —
+ * CAN-SPAM requires both in the body itself, not just as email headers.
+ * Every other (transactional) email leaves it unset.
  */
-export function renderEmail(body: string): string {
+export function renderEmail(body: string, complianceFooter?: string): string {
   return `<div style="background-color:#eeeef0;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <div style="max-width:480px;margin:0 auto;">
       <table role="presentation" style="margin:0 auto 28px;" cellpadding="0" cellspacing="0">
@@ -34,6 +38,7 @@ export function renderEmail(body: string): string {
         ${body}
       </div>
       <p style="text-align:center;margin-top:24px;font-size:12px;color:#9395a6;">conference.contact — the verified conference contact directory</p>
+      ${complianceFooter ?? ''}
     </div>
   </div>`;
 }
