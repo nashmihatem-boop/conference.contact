@@ -108,6 +108,12 @@ model User {
   // row that no real Stripe object backs.
   adminGrantedDirectoryAccess Boolean @default(false) @map("admin_granted_directory_access")
 
+  // Same idea as adminGrantedDirectoryAccess but for the AI Lead Finder —
+  // bypasses the free-tier daily search cap, the per-search result cap, and
+  // credit spending entirely (see LeadsService.hasUnlimitedLeadFinderAccess).
+  // Independent of both the Directory comp and any paid LeadFinderTier.
+  adminGrantedLeadFinderAccess Boolean @default(false) @map("admin_granted_lead_finder_access")
+
   // Created lazily on first checkout and reused for the account's whole
   // lifetime — one Stripe Customer per User, not per Subscription, so
   // cancel-then-resubscribe keeps payment history and saved cards intact
@@ -238,10 +244,11 @@ model AdminAccessInvite {
   invitedByUserId String @db.Uuid @map("invited_by_user_id")
   invitedBy       User   @relation(fields: [invitedByUserId], references: [id], onDelete: Cascade)
 
-  email                String
-  role                 Role                    @default(USER)
-  grantDirectoryAccess Boolean                 @default(true) @map("grant_directory_access")
-  status               AdminAccessInviteStatus @default(PENDING)
+  email                 String
+  role                   Role                    @default(USER)
+  grantDirectoryAccess   Boolean                 @default(true) @map("grant_directory_access")
+  grantLeadFinderAccess  Boolean                 @default(false) @map("grant_lead_finder_access")
+  status                 AdminAccessInviteStatus @default(PENDING)
 
   createdAt  DateTime  @default(now()) @map("created_at")
   acceptedAt DateTime? @map("accepted_at")

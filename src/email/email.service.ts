@@ -114,10 +114,12 @@ export class EmailService {
   async sendAdminAccessInvite(
     to: string,
     grantsDirectoryAccess: boolean,
+    grantsLeadFinderAccess: boolean,
   ): Promise<void> {
     await this.enqueue('admin-access-invite', {
       to,
       grantsDirectoryAccess: grantsDirectoryAccess ? 'true' : 'false',
+      grantsLeadFinderAccess: grantsLeadFinderAccess ? 'true' : 'false',
     });
   }
 
@@ -136,6 +138,17 @@ export class EmailService {
   /** A colleague invited to sign up for their own account — never grants access to the inviter's subscription. */
   async sendInviteEmail(to: string, inviterName: string): Promise<void> {
     await this.enqueue('invite', { to, inviterName });
+  }
+
+  /**
+   * Cold outreach to someone who has never signed up — see
+   * AdminService.inviteProspect. Distinct from sendProspectPitch (which
+   * targets an existing, already-signed-up user by name); this only ever
+   * has an email address to go on, and grants nothing — it links to
+   * /invited, which itself feeds into the normal, unmodified signup flow.
+   */
+  async sendProspectInvite(to: string): Promise<void> {
+    await this.enqueue('prospect-cold-invite', { to });
   }
 
   /**

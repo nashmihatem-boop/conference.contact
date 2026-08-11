@@ -28,7 +28,9 @@ import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-message
 import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
+import { SetLeadFinderAccessDto } from './dto/set-lead-finder-access.dto';
 import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
+import { InviteProspectDto } from './dto/invite-prospect.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
@@ -120,6 +122,15 @@ export class AdminController {
     return this.admin.setDirectoryAccess(admin.sub, id, dto);
   }
 
+  @Patch('users/:id/lead-finder-access')
+  setLeadFinderAccess(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Param('id') id: string,
+    @Body() dto: SetLeadFinderAccessDto,
+  ) {
+    return this.admin.setLeadFinderAccess(admin.sub, id, dto);
+  }
+
   @Get('prospects')
   listProspects(@Query() query: ListProspectsQueryDto) {
     return this.admin.listProspects(query);
@@ -132,6 +143,14 @@ export class AdminController {
     @Body() dto: PitchProspectDto,
   ) {
     return this.admin.pitchProspect(admin.sub, id, dto);
+  }
+
+  @Post('prospects/invite')
+  inviteProspect(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: InviteProspectDto,
+  ) {
+    return this.admin.inviteProspect(admin.sub, dto);
   }
 
   @Get('subscriptions')

@@ -198,13 +198,24 @@ export class LeadsService {
     }
   }
 
-  /** Staff accounts (ADMIN/SUPER_ADMIN) run their own real searches to test and support the product — they're exempt from every Lead Finder limit below, not just the free-tier caps. */
-  private async isAdminAccount(userId: string): Promise<boolean> {
+  /**
+   * Staff accounts (ADMIN/SUPER_ADMIN) run their own real searches to test
+   * and support the product, and an admin can also comp this directly onto
+   * a regular user's account (User.adminGrantedLeadFinderAccess, granted at
+   * invite time or after the fact — see AdminService.setLeadFinderAccess) —
+   * either way, exempt from every Lead Finder limit below, not just the
+   * free-tier caps.
+   */
+  private async hasUnlimitedLeadFinderAccess(userId: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, adminGrantedLeadFinderAccess: true },
     });
-    return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+    return (
+      user?.role === 'ADMIN' ||
+      user?.role === 'SUPER_ADMIN' ||
+      user?.adminGrantedLeadFinderAccess === true
+    );
   }
 
   /**
@@ -216,10 +227,10 @@ export class LeadsService {
    * latter, someone who paid for 500+ credits would still be throttled to
    * 3 results/day like they'd never paid anything — the whole point of a
    * credit pack is spending it faster than that. Admin accounts count as
-   * paid here too, per isAdminAccount above.
+   * paid here too, per hasUnlimitedLeadFinderAccess above.
    */
   private async hasPaidLeadFinderAccess(userId: string): Promise<boolean> {
-    if (await this.isAdminAccount(userId)) return true;
+    if (await this.hasUnlimitedLeadFinderAccess(userId)) return true;
     const [subscription, creditPurchase] = await Promise.all([
       this.prisma.leadFinderSubscription.findFirst({
         where: { userId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
@@ -527,7 +538,7 @@ export class LeadsService {
    * Returns false once the balance hits 0, telling the caller to stop.
    */
   async tryReserveCredit(userId: string): Promise<boolean> {
-    if (await this.isAdminAccount(userId)) return true;
+    if (await this.hasUnlimitedLeadFinderAccess(userId)) return true;
     const result = await this.prisma.user.updateMany({
       where: { id: userId, leadFinderCredits: { gt: 0 } },
       data: { leadFinderCredits: { decrement: 1 } },
@@ -537,7 +548,7 @@ export class LeadsService {
 
   /** Apollo enrichment that finds nothing is a real 0-credit outcome on Apollo's side too — give the reserved credit back. */
   async refundCredit(userId: string): Promise<void> {
-    if (await this.isAdminAccount(userId)) return;
+    if (await this.hasUnlimitedLeadFinderAccess(userId)) return;
     await this.prisma.user.update({
       where: { id: userId },
       data: { leadFinderCredits: { increment: 1 } },
@@ -645,15 +656,15 @@ export class LeadsService {
    * already reviewed (and could have edited) Claude's draft in the panel.
    */
   async aiSearch(userId: string, dto: AiSearchDto): Promise<{ jobId: string }> {
-    const [user, isAdmin] = await Promise.all([
+    const [user, hasUnlimited] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { leadFinderCredits: true },
       }),
-      this.isAdminAccount(userId),
+      this.hasUnlimitedLeadFinderAccess(userId),
     ]);
 
-    if (!isAdmin && user.leadFinderCredits <= 0) {
+    if (!hasUnlimited && user.leadFinderCredits <= 0) {
       throw new ForbiddenException(
         "You're out of Lead Finder credits. Buy more to keep searching.",
       );
@@ -678,7 +689,7 @@ export class LeadsService {
       },
     });
 
-    const cap = isAdmin
+    const cap = hasUnlimited
       ? freeTier.maxResultsPerSearch
       : Math.min(user.leadFinderCredits, freeTier.maxResultsPerSearch);
     await this.apolloQueue.add(
@@ -724,21 +735,21 @@ export class LeadsService {
       );
     }
 
-    const [user, isAdmin] = await Promise.all([
+    const [user, hasUnlimited] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { leadFinderCredits: true },
       }),
-      this.isAdminAccount(userId),
+      this.hasUnlimitedLeadFinderAccess(userId),
     ]);
-    if (!isAdmin && user.leadFinderCredits <= 0) {
+    if (!hasUnlimited && user.leadFinderCredits <= 0) {
       throw new ForbiddenException(
         "You're out of Lead Finder credits. Buy more to keep searching.",
       );
     }
 
     const requested = dto.count ?? this.maxResultsPerSearch;
-    const cap = isAdmin
+    const cap = hasUnlimited
       ? Math.min(requested, this.maxResultsPerSearch)
       : Math.min(requested, user.leadFinderCredits, this.maxResultsPerSearch);
 

@@ -28,7 +28,9 @@ import { ListContactMessagesQueryDto } from '../contact/dto/list-contact-message
 import { ReplyContactMessageDto } from '../contact/dto/reply-contact-message.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
+import { SetLeadFinderAccessDto } from './dto/set-lead-finder-access.dto';
 import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
+import { InviteProspectDto } from './dto/invite-prospect.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 const LEAD_SELECT = {
@@ -85,6 +87,7 @@ const USER_LIST_SELECT = {
   createdAt: true,
   leadFinderCredits: true,
   adminGrantedDirectoryAccess: true,
+  adminGrantedLeadFinderAccess: true,
 } satisfies Prisma.UserSelect;
 
 export interface Page<T> {
@@ -509,6 +512,7 @@ export class AdminService {
       invitedByUserId: adminUserId,
       role: dto.role ?? 'USER',
       grantDirectoryAccess: dto.grantDirectoryAccess ?? true,
+      grantLeadFinderAccess: dto.grantLeadFinderAccess ?? false,
     };
     if (pending) {
       await this.prisma.adminAccessInvite.update({
@@ -524,6 +528,7 @@ export class AdminService {
     await this.email.sendAdminAccessInvite(
       email,
       dto.grantDirectoryAccess ?? true,
+      dto.grantLeadFinderAccess ?? false,
     );
     await this.audit.record({
       actorUserId: adminUserId,
@@ -532,6 +537,7 @@ export class AdminService {
         email,
         role: dto.role ?? 'USER',
         grantDirectoryAccess: dto.grantDirectoryAccess ?? true,
+        grantLeadFinderAccess: dto.grantLeadFinderAccess ?? false,
       },
     });
 
@@ -567,6 +573,38 @@ export class AdminService {
       message: dto.granted
         ? `Directory access granted to ${target.email}.`
         : `Directory access revoked for ${target.email}.`,
+    };
+  }
+
+  /** Toggles the Stripe-independent comp flag on an existing account — see User.adminGrantedLeadFinderAccess. */
+  async setLeadFinderAccess(
+    adminUserId: string,
+    targetUserId: string,
+    dto: SetLeadFinderAccessDto,
+  ): Promise<{ message: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { adminGrantedLeadFinderAccess: dto.granted },
+    });
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: dto.granted
+        ? 'admin.lead_finder_access_granted'
+        : 'admin.lead_finder_access_revoked',
+      targetType: 'User',
+      targetId: targetUserId,
+    });
+
+    return {
+      message: dto.granted
+        ? `Unlimited Lead Finder access granted to ${target.email}.`
+        : `Unlimited Lead Finder access revoked for ${target.email}.`,
     };
   }
 
@@ -671,6 +709,41 @@ export class AdminService {
     });
 
     return { message: `${dto.template} pitch sent to ${target.email}.` };
+  }
+
+  /**
+   * Cold outreach to someone who has never signed up at all — distinct from
+   * pitchProspect above, which only ever targets an existing User row. No
+   * account, comp, or invite record is created here (this grants nothing —
+   * see AdminService.inviteUser for that); it's a marketing email pointing
+   * at /invited, which itself links into the normal, unmodified signup
+   * flow. Tracked via the audit log only (no targetId — there's no User to
+   * attach it to yet).
+   */
+  async inviteProspect(
+    adminUserId: string,
+    dto: InviteProspectDto,
+  ): Promise<{ message: string }> {
+    const email = dto.email.trim().toLowerCase();
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existingUser) {
+      throw new BadRequestException(
+        'This email already has an account — pitch them directly from the Prospects list instead.',
+      );
+    }
+
+    await this.email.sendProspectInvite(email);
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.prospect_invited',
+      metadata: { email },
+    });
+
+    return { message: `Invite sent to ${email}.` };
   }
 
   // ── Subscriptions ────────────────────────────────────────────────────

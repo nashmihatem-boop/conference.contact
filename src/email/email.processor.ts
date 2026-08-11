@@ -37,9 +37,13 @@ interface InviteData {
   to: string;
   inviterName: string;
 }
+interface ProspectColdInviteData {
+  to: string;
+}
 interface AdminAccessInviteData {
   to: string;
   grantsDirectoryAccess: string;
+  grantsLeadFinderAccess: string;
 }
 interface ProspectPitchData {
   to: string;
@@ -291,19 +295,47 @@ export class EmailProcessor extends WorkerHost {
         );
         return;
       }
+      case 'prospect-cold-invite': {
+        const { to } = job.data as ProspectColdInviteData;
+        const link = `${this.frontendUrl}/invited?email=${encodeURIComponent(to)}`;
+        await this.send(
+          to,
+          "You've been invited to check out conference.contact",
+          renderEmail(
+            heading('Thought this might be useful') +
+              paragraph(
+                'A hand-verified directory of B2B conference contacts, with an AI tool that finds and enriches new leads live — take a look and see what’s inside.',
+              ) +
+              ctaButton(link, 'Take a look →') +
+              footnote(
+                'No obligation — you can create a free account just to browse.',
+              ),
+          ),
+          this.supportEmail,
+        );
+        return;
+      }
       case 'admin-access-invite': {
-        const { to, grantsDirectoryAccess } = job.data as AdminAccessInviteData;
+        const { to, grantsDirectoryAccess, grantsLeadFinderAccess } =
+          job.data as AdminAccessInviteData;
         const link = `${this.frontendUrl}/signup?email=${encodeURIComponent(to)}`;
+        const perks: string[] = [];
+        if (grantsDirectoryAccess === 'true') {
+          perks.push('full access to the Lead Directory');
+        }
+        if (grantsLeadFinderAccess === 'true') {
+          perks.push('unlimited AI Lead Finder searches');
+        }
+        const perksText =
+          perks.length > 0
+            ? `You've been given ${perks.join(' and ')} — no subscription needed. Create your account to get started.`
+            : 'An account has been set up for you. Create your account to get started.';
         await this.send(
           to,
           "You've been invited to conference.contact",
           renderEmail(
             heading("You've been invited to conference.contact") +
-              paragraph(
-                grantsDirectoryAccess === 'true'
-                  ? "You've been given full access to the Lead Directory — no subscription needed. Create your account to get started."
-                  : 'An account has been set up for you. Create your account to get started.',
-              ) +
+              paragraph(perksText) +
               ctaButton(link, 'Create your account →') +
               footnote('Questions? Just reply to this email.'),
           ),

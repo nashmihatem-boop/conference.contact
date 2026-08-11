@@ -130,6 +130,7 @@ export class AuthService {
           ...(accessInvite && {
             role: accessInvite.role,
             adminGrantedDirectoryAccess: accessInvite.grantDirectoryAccess,
+            adminGrantedLeadFinderAccess: accessInvite.grantLeadFinderAccess,
           }),
         },
       });

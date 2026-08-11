@@ -27,4 +27,13 @@ export class InviteUserDto {
   @IsOptional()
   @IsBoolean()
   grantDirectoryAccess?: boolean;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Grants unlimited AI Lead Finder searches on signup — bypasses the free-tier daily cap, per-search result cap, and credit spending entirely.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  grantLeadFinderAccess?: boolean;
 }
