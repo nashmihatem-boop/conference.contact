@@ -2,7 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
-import { EMAIL_QUEUE } from '../queue/queue.module';
+import { BULK_EMAIL_QUEUE, EMAIL_QUEUE } from '../queue/queue.module';
 import { withTimeout } from '../queue/with-timeout.util';
 
 // These jobs carry a raw, single-use secret (a verification/reset token, or
@@ -21,6 +21,11 @@ const SHORT_FAILURE_RETENTION = { removeOnFail: { age: 60 * 60 } };
 // meaning "registration never responds."
 const ENQUEUE_TIMEOUT_MS = 3_000;
 
+// A chunk of up to 500 addBulk jobs is a bigger single Redis round-trip
+// than one job — generous enough that a healthy Redis instance is nowhere
+// close to it, while still bounding the request if Redis is unreachable.
+const BULK_ENQUEUE_TIMEOUT_MS = 15_000;
+
 /**
  * A thin producer — every method here just enqueues a job and returns.
  * EmailProcessor (same module) is the actual worker holding the Resend
@@ -36,6 +41,7 @@ export class EmailService {
 
   constructor(
     @InjectQueue(EMAIL_QUEUE) private readonly queue: Queue,
+    @InjectQueue(BULK_EMAIL_QUEUE) private readonly bulkQueue: Queue,
     private readonly config: ConfigService,
   ) {
     this.frontendUrl = this.config.getOrThrow<string>('FRONTEND_URL');
@@ -146,9 +152,25 @@ export class EmailService {
    * targets an existing, already-signed-up user by name); this only ever
    * has an email address to go on, and grants nothing — it links to
    * /invited, which itself feeds into the normal, unmodified signup flow.
+   * Goes on BULK_EMAIL_QUEUE (BulkEmailProcessor), not EMAIL_QUEUE — same
+   * queue a real bulk send uses, so a single invite and a 30,000-row batch
+   * both go through the one path that carries a real unsubscribe link and
+   * respects the rate limiter.
    */
   async sendProspectInvite(to: string): Promise<void> {
-    await this.enqueue('prospect-cold-invite', { to });
+    await this.enqueueBulk([{ name: 'prospect-cold-invite', data: { to } }]);
+  }
+
+  /**
+   * See AdminService.inviteProspectsBulk — `emails` has already been
+   * deduped and checked against existing Users/EmailSuppression by the
+   * caller. addBulk is one Redis round-trip for the whole batch rather than
+   * thousands of individual .add() calls.
+   */
+  async sendProspectInviteBulk(emails: string[]): Promise<void> {
+    await this.enqueueBulk(
+      emails.map((to) => ({ name: 'prospect-cold-invite', data: { to } })),
+    );
   }
 
   /**
@@ -228,6 +250,34 @@ export class EmailService {
       this.logger.error(
         `Failed to enqueue "${name}" email job for ${data.to}: ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * addBulk in chunks rather than one 30,000-job call — keeps each Redis
+   * round-trip (and its timeout) bounded regardless of how large a single
+   * campaign gets. A failed chunk is logged and skipped rather than
+   * aborting the whole batch; AdminService already has the full recipient
+   * list in its response, so a partial failure here is visible, not silent.
+   */
+  private async enqueueBulk(
+    jobs: { name: string; data: Record<string, string> }[],
+  ): Promise<void> {
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < jobs.length; i += CHUNK_SIZE) {
+      const chunk = jobs.slice(i, i + CHUNK_SIZE);
+      try {
+        await withTimeout(
+          this.bulkQueue.addBulk(
+            chunk.map((job) => ({ ...job, opts: SHORT_FAILURE_RETENTION })),
+          ),
+          BULK_ENQUEUE_TIMEOUT_MS,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Failed to enqueue a batch of ${chunk.length} bulk email job(s) starting at index ${i}: ${(err as Error).message}`,
+        );
+      }
     }
   }
 

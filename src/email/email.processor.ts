@@ -4,6 +4,15 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { Resend } from 'resend';
 import { EMAIL_QUEUE } from '../queue/queue.module';
+import {
+  ctaButton,
+  escapeHtml,
+  footnote,
+  heading,
+  paragraph,
+  renderEmail,
+  sanitizeForSubject,
+} from './email-template.util';
 
 interface WelcomeData {
   to: string;
@@ -36,9 +45,6 @@ interface ContactReplyData {
 interface InviteData {
   to: string;
   inviterName: string;
-}
-interface ProspectColdInviteData {
-  to: string;
 }
 interface AdminAccessInviteData {
   to: string;
@@ -78,62 +84,6 @@ const CONTACT_REASON_LABELS: Record<string, string> = {
   REMOVE_RECORD: 'Remove my directory record',
   OTHER: 'Other',
 };
-
-/** Strips control characters (CR/LF in particular) before user input reaches an email subject line — defense-in-depth against header injection, since a subject isn't HTML-rendered so escapeHtml() doesn't apply there. */
-function sanitizeForSubject(value: string): string {
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/[\x00-\x1f\x7f]/g, ' ').trim();
-}
-
-/** Contact-form fields are the only untrusted input interpolated into an email body here — everything else is a server-generated token/code. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
- * Every email shares this shell (logo header, white card, footer) — `body`
- * is just the card's contents, so each email case only ever writes the
- * part that's actually different about it.
- */
-function renderEmail(body: string): string {
-  return `<div style="background-color:#eeeef0;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-    <div style="max-width:480px;margin:0 auto;">
-      <table role="presentation" style="margin:0 auto 28px;" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="width:28px;height:28px;background-color:#c3db42;border-radius:7px;text-align:center;vertical-align:middle;">
-            <div style="width:16px;height:11px;background-color:#0d1448;border-radius:2px;margin:0 auto;"></div>
-          </td>
-          <td style="padding-left:9px;font-size:17px;font-weight:800;color:#12152b;">conference<span style="color:#a9c022;">.</span>contact</td>
-        </tr>
-      </table>
-      <div style="background-color:#ffffff;border:1px solid #e2e2e7;border-radius:16px;padding:40px 32px;text-align:center;">
-        ${body}
-      </div>
-      <p style="text-align:center;margin-top:24px;font-size:12px;color:#9395a6;">conference.contact — the verified conference contact directory</p>
-    </div>
-  </div>`;
-}
-
-function heading(text: string): string {
-  return `<h1 style="margin:0;font-size:21px;font-weight:800;color:#12152b;line-height:1.35;">${text}</h1>`;
-}
-
-function paragraph(text: string): string {
-  return `<p style="margin:16px 0 0;font-size:15px;color:#5b5f73;line-height:1.6;">${text}</p>`;
-}
-
-function footnote(text: string): string {
-  return `<p style="margin:22px 0 0;font-size:13px;color:#9395a6;">${text}</p>`;
-}
-
-function ctaButton(href: string, label: string): string {
-  return `<a href="${href}" style="display:inline-block;margin-top:28px;background-color:#c6e02e;color:#0b1454;font-weight:700;font-size:15px;text-decoration:none;padding:14px 34px;border-radius:999px;">${label}</a>`;
-}
 
 /**
  * The actual Resend client lives here, not in EmailService — this is the
@@ -292,26 +242,6 @@ export class EmailProcessor extends WorkerHost {
                 "Full Access is $50 every 6 months, rate locked in, whenever you're ready to subscribe.",
               ),
           ),
-        );
-        return;
-      }
-      case 'prospect-cold-invite': {
-        const { to } = job.data as ProspectColdInviteData;
-        const link = `${this.frontendUrl}/invited?email=${encodeURIComponent(to)}`;
-        await this.send(
-          to,
-          "You've been invited to check out conference.contact",
-          renderEmail(
-            heading('Thought this might be useful') +
-              paragraph(
-                'A hand-verified directory of B2B conference contacts, with an AI tool that finds and enriches new leads live — take a look and see what’s inside.',
-              ) +
-              ctaButton(link, 'Take a look →') +
-              footnote(
-                'No obligation — you can create a free account just to browse.',
-              ),
-          ),
-          this.supportEmail,
         );
         return;
       }

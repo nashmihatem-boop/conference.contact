@@ -31,6 +31,7 @@ import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
 import { SetLeadFinderAccessDto } from './dto/set-lead-finder-access.dto';
 import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
 import { InviteProspectDto } from './dto/invite-prospect.dto';
+import { BulkInviteProspectsDto } from './dto/bulk-invite-prospects.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
@@ -151,6 +152,14 @@ export class AdminController {
     @Body() dto: InviteProspectDto,
   ) {
     return this.admin.inviteProspect(admin.sub, dto);
+  }
+
+  @Post('prospects/invite-bulk')
+  inviteProspectsBulk(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: BulkInviteProspectsDto,
+  ) {
+    return this.admin.inviteProspectsBulk(admin.sub, dto);
   }
 
   @Get('subscriptions')

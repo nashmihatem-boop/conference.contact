@@ -7,6 +7,11 @@ export const EMAIL_QUEUE = 'email';
 export const STRIPE_WEBHOOK_QUEUE = 'stripe-webhook';
 export const APOLLO_SEARCH_QUEUE = 'apollo-search';
 export const RENEWAL_REMINDER_QUEUE = 'renewal-reminder';
+// Cold-outreach prospect invites (single or bulk) — a separate queue from
+// EMAIL_QUEUE and rate-limited (see BulkEmailProcessor) so a 30,000-email
+// campaign can never delay a time-sensitive transactional send (a login
+// code, a password reset) sitting behind it in the same worker.
+export const BULK_EMAIL_QUEUE = 'bulk-email';
 
 /** Injection token for the plain ioredis client — for simple cache-style commands (GET/SET/EXISTS), not queue work. */
 export const REDIS_CLIENT = 'REDIS_CLIENT';

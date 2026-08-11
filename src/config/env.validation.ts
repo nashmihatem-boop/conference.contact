@@ -45,6 +45,13 @@ export const envValidationSchema = Joi.object({
   // rotating one should never force rotating the other.
   TWO_FACTOR_ENCRYPTION_KEY: Joi.string().base64().required(),
 
+  // Signs stateless unsubscribe links (see unsubscribe-token.util.ts) —
+  // deliberately its own secret, not reused from JWT_ACCESS_SECRET: these
+  // links have to keep working indefinitely for addresses that never had
+  // (and never will have) a User row, which is a different threat model
+  // from an access token's short-lived, per-account signature.
+  UNSUBSCRIBE_SECRET: Joi.string().min(32).required(),
+
   RESEND_API_KEY: Joi.string().required(),
   // Where the /contact form's messages land — see ContactController.
   SUPPORT_EMAIL: Joi.string().email().required(),

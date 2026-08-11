@@ -92,8 +92,12 @@ async function bootstrap() {
   // matches middleware in registration order, so this specific path gets
   // the raw body while everything else still gets normal JSON parsing.
   app.use('/api/v1/webhooks/stripe', express.raw({ type: 'application/json' }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Default 100kb is too small for a bulk prospect-invite payload — up to
+  // 50,000 emails (BulkInviteProspectsDto's own cap) as a JSON array is a
+  // few MB; 10mb leaves comfortable headroom without opening the door to
+  // arbitrarily large request bodies.
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   app.enableCors({
     // `origin: false` (the previous value here) doesn't mean "no

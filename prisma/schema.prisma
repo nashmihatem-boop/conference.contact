@@ -735,3 +735,16 @@ model ContactMessage {
   @@index([resolved, createdAt])
   @@map("contact_messages")
 }
+
+// Emails that opted out of cold-outreach prospect invites (see
+// AdminService.inviteProspect/inviteProspectsBulk and the /unsubscribe
+// flow). Checked before every cold-invite send — never re-sent once here.
+// Deliberately independent of the User table: most suppressed addresses
+// never had (and never will have) an account.
+model EmailSuppression {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("email_suppressions")
+}
