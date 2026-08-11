@@ -483,7 +483,11 @@ export class LeadsService {
       }),
     ]);
     return {
-      companyTypes: companyTypes.map((c) => c.companyType),
+      // Unclassified (null) rows aren't offered as a filter choice — they
+      // stay findable via search or the event filter instead.
+      companyTypes: companyTypes
+        .map((c) => c.companyType)
+        .filter((c): c is NonNullable<typeof c> => c !== null),
       events: events.map((e) => e.likelyToAttend),
     };
   }

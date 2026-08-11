@@ -560,7 +560,10 @@ model Lead {
   email    String?
   phone    String?
 
-  companyType    CompanyType @map("company_type")
+  // Nullable — a small share of bulk-imported rows arrive with no company
+  // category on file (the source list simply didn't have one for them).
+  // Still real people worth keeping in the directory, just uncategorized.
+  companyType    CompanyType? @map("company_type")
   // One event per row in the source data (the same person attending two
   // events is two rows, not a list here) — matches the real data exactly.
   likelyToAttend String      @map("likely_to_attend")

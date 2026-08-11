@@ -15,9 +15,10 @@ export class CreateLeadDto {
   @MaxLength(200)
   name!: string;
 
-  @ApiProperty({ enum: CompanyType })
+  @ApiPropertyOptional({ enum: CompanyType })
+  @IsOptional()
   @IsEnum(CompanyType)
-  companyType!: CompanyType;
+  companyType?: CompanyType;
 
   @ApiProperty()
   @IsString()

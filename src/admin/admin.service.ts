@@ -967,7 +967,9 @@ export class AdminService {
       }),
     ]);
     return {
-      companyTypes: companyTypes.map((c) => c.companyType),
+      companyTypes: companyTypes
+        .map((c) => c.companyType)
+        .filter((c): c is NonNullable<typeof c> => c !== null),
       events: events.map((e) => e.likelyToAttend),
     };
   }
