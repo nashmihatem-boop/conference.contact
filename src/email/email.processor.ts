@@ -62,6 +62,11 @@ interface PaymentFailedData {
   productLabel: string;
   gracePeriodDays: number;
 }
+interface CancellationScheduledData {
+  to: string;
+  productLabel: string;
+  accessUntil: string;
+}
 
 const CONTACT_REASON_LABELS: Record<string, string> = {
   BILLING: 'Billing question',
@@ -150,7 +155,9 @@ export class EmailProcessor extends WorkerHost {
     switch (job.name) {
       case 'welcome': {
         const { to, fullName } = job.data as WelcomeData;
-        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const firstName = escapeHtml(
+          fullName.trim().split(/\s+/)[0] || 'there',
+        );
         const link = `${this.frontendUrl}/account`;
         await this.send(
           to,
@@ -306,7 +313,9 @@ export class EmailProcessor extends WorkerHost {
       }
       case 'prospect-pitch-intro': {
         const { to, fullName } = job.data as ProspectPitchData;
-        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const firstName = escapeHtml(
+          fullName.trim().split(/\s+/)[0] || 'there',
+        );
         const link = `${this.frontendUrl}/account/billing`;
         await this.send(
           to,
@@ -327,7 +336,9 @@ export class EmailProcessor extends WorkerHost {
       }
       case 'prospect-pitch-value': {
         const { to, fullName } = job.data as ProspectPitchData;
-        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const firstName = escapeHtml(
+          fullName.trim().split(/\s+/)[0] || 'there',
+        );
         const link = `${this.frontendUrl}/account/billing`;
         const features = [
           'Unlimited directory searches',
@@ -351,7 +362,9 @@ export class EmailProcessor extends WorkerHost {
                    .join('')}
                </ul>` +
               ctaButton(link, 'See full access →') +
-              footnote('$50 every 6 months. No sales calls, no tiers to compare.'),
+              footnote(
+                '$50 every 6 months. No sales calls, no tiers to compare.',
+              ),
           ),
           this.supportEmail,
         );
@@ -359,13 +372,17 @@ export class EmailProcessor extends WorkerHost {
       }
       case 'prospect-pitch-urgency': {
         const { to, fullName } = job.data as ProspectPitchData;
-        const firstName = escapeHtml(fullName.trim().split(/\s+/)[0] || 'there');
+        const firstName = escapeHtml(
+          fullName.trim().split(/\s+/)[0] || 'there',
+        );
         const link = `${this.frontendUrl}/account/billing`;
         await this.send(
           to,
           'Lock in your rate before it changes',
           renderEmail(
-            heading(`${firstName}, your price locks in the moment you subscribe`) +
+            heading(
+              `${firstName}, your price locks in the moment you subscribe`,
+            ) +
               paragraph(
                 "conference.contact is still $50 every 6 months today. If we ever raise the price, everyone already subscribed keeps the rate they signed up at — so there's no upside to waiting, only downside if pricing changes later.",
               ) +
@@ -395,7 +412,9 @@ export class EmailProcessor extends WorkerHost {
                 `Your payment went through and your ${escapeHtml(productLabel)} plan is active. You were charged ${amountLabel} — it renews on <strong>${dateLabel}</strong>.`,
               ) +
               ctaButton(link, 'Manage your plan →') +
-              footnote('Questions about your subscription? Just reply to this email.'),
+              footnote(
+                'Questions about your subscription? Just reply to this email.',
+              ),
           ),
           this.supportEmail,
         );
@@ -442,6 +461,32 @@ export class EmailProcessor extends WorkerHost {
                 "We'll retry the charge automatically in the meantime — if it goes through, there's nothing else to do.",
               ),
           ),
+        );
+        return;
+      }
+      case 'cancellation-scheduled': {
+        const { to, productLabel, accessUntil } =
+          job.data as CancellationScheduledData;
+        const dateLabel = new Date(accessUntil).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        const link = `${this.frontendUrl}/account/billing`;
+        await this.send(
+          to,
+          `Your ${productLabel} plan is set to cancel — conference.contact`,
+          renderEmail(
+            heading('Your cancellation is scheduled') +
+              paragraph(
+                `We've turned off future billing for your ${escapeHtml(productLabel)} plan. Your access stays active through <strong>${dateLabel}</strong> — you won't be charged again after that.`,
+              ) +
+              ctaButton(link, 'Manage your plan →') +
+              footnote(
+                'Changed your mind? You can resume anytime before that date and keep your access uninterrupted.',
+              ),
+          ),
+          this.supportEmail,
         );
         return;
       }

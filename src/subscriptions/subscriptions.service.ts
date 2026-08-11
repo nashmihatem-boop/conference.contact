@@ -273,6 +273,10 @@ export class SubscriptionsService {
     const subscription = await this.prisma.subscription.findFirst({
       where: { userId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
       orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { email: true } },
+        plan: { select: { name: true } },
+      },
     });
     if (!subscription)
       throw new NotFoundException('No active subscription to cancel');
@@ -297,6 +301,12 @@ export class SubscriptionsService {
       action: 'billing.subscription_cancel_requested',
       targetId: subscription.id,
     });
+
+    await this.email.sendCancellationScheduled(
+      subscription.user.email,
+      subscription.plan.name,
+      subscription.currentPeriodEnd,
+    );
 
     return {
       message:

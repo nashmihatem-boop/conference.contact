@@ -177,6 +177,24 @@ export class EmailService {
   }
 
   /**
+   * Sent the moment a user requests cancellation (cancel_at_period_end) —
+   * confirms the request went through and that access continues until the
+   * period actually ends, since Stripe itself sends nothing for this and
+   * the alternative is the user having no confirmation their click worked.
+   */
+  async sendCancellationScheduled(
+    to: string,
+    productLabel: string,
+    accessUntil: Date,
+  ): Promise<void> {
+    await this.enqueue('cancellation-scheduled', {
+      to,
+      productLabel,
+      accessUntil: accessUntil.toISOString(),
+    });
+  }
+
+  /**
    * Same resilience property the pre-queue version had: a request that
    * triggers an email (registration, login, ...) must still succeed even
    * if the email infrastructure itself is unavailable — that used to mean

@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsEnum, IsOptional, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  MaxLength,
+} from 'class-validator';
 import { Role } from '../../../generated/prisma/enums';
 
 export class InviteUserDto {
@@ -15,7 +21,8 @@ export class InviteUserDto {
 
   @ApiPropertyOptional({
     default: true,
-    description: 'Grants Directory access on signup, without a real subscription.',
+    description:
+      'Grants Directory access on signup, without a real subscription.',
   })
   @IsOptional()
   @IsBoolean()

@@ -608,7 +608,11 @@ export class AdminService {
             orderBy: { createdAt: 'desc' },
             select: {
               status: true,
-              invoices: { where: { status: 'PAID' }, select: { id: true }, take: 1 },
+              invoices: {
+                where: { status: 'PAID' },
+                select: { id: true },
+                take: 1,
+              },
             },
           },
         },
@@ -633,7 +637,12 @@ export class AdminService {
       };
     });
 
-    return { data: enriched, page: query.page, pageSize: query.pageSize, total };
+    return {
+      data: enriched,
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+    };
   }
 
   async pitchProspect(
