@@ -57,6 +57,13 @@ export const envValidationSchema = Joi.object({
   // must be the actual business address.
   COMPANY_MAILING_ADDRESS: Joi.string().min(10).required(),
 
+  // Optional, not required: the webhook endpoint (ResendWebhookController)
+  // exists before the corresponding endpoint is registered in Resend's
+  // dashboard, so the app must still boot without it. Left unset, the
+  // controller returns 503 rather than silently accepting unverifiable
+  // requests.
+  RESEND_WEBHOOK_SECRET: Joi.string().optional(),
+
   RESEND_API_KEY: Joi.string().required(),
   // Where the /contact form's messages land — see ContactController.
   SUPPORT_EMAIL: Joi.string().email().required(),

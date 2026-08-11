@@ -12,6 +12,11 @@ export const RENEWAL_REMINDER_QUEUE = 'renewal-reminder';
 // campaign can never delay a time-sensitive transactional send (a login
 // code, a password reset) sitting behind it in the same worker.
 export const BULK_EMAIL_QUEUE = 'bulk-email';
+// Drives the once-daily drip job that sends a capped batch out of
+// ProspectInviteQueue — see ProspectCampaignModule. Separate from
+// BULK_EMAIL_QUEUE itself (which still does the actual sending/rate
+// limiting); this queue only ever holds one recurring 'drip' job.
+export const PROSPECT_CAMPAIGN_QUEUE = 'prospect-campaign';
 
 /** Injection token for the plain ioredis client — for simple cache-style commands (GET/SET/EXISTS), not queue work. */
 export const REDIS_CLIENT = 'REDIS_CLIENT';

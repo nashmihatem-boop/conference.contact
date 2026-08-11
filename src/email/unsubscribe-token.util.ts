@@ -10,10 +10,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * links): nothing to store, nothing to expire, and it can't be forged
  * without UNSUBSCRIBE_SECRET.
  */
-export function signUnsubscribeToken(
-  email: string,
-  secret: string,
-): string {
+export function signUnsubscribeToken(email: string, secret: string): string {
   return createHmac('sha256', secret)
     .update(email.trim().toLowerCase())
     .digest('base64url');

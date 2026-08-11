@@ -33,6 +33,8 @@ import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
 import { InviteProspectDto } from './dto/invite-prospect.dto';
 import { BulkInviteProspectsDto } from './dto/bulk-invite-prospects.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
+import { ProspectCampaignService } from '../prospect-campaign/prospect-campaign.service';
+import { UpdateCampaignSettingsDto } from '../prospect-campaign/dto/update-campaign-settings.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
 @ApiTags('admin')
@@ -40,7 +42,10 @@ import { PitchProspectDto } from './dto/pitch-prospect.dto';
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly campaign: ProspectCampaignService,
+  ) {}
 
   @Get('users')
   listUsers(@Query() query: ListUsersQueryDto) {
@@ -154,12 +159,27 @@ export class AdminController {
     return this.admin.inviteProspect(admin.sub, dto);
   }
 
+  // Queues emails for the daily-capped drip campaign rather than sending
+  // immediately — see ProspectCampaignService.
   @Post('prospects/invite-bulk')
-  inviteProspectsBulk(
+  queueProspectsBulk(
     @CurrentUser() admin: AccessTokenPayload,
     @Body() dto: BulkInviteProspectsDto,
   ) {
-    return this.admin.inviteProspectsBulk(admin.sub, dto);
+    return this.campaign.enqueueUploadedEmails(admin.sub, dto.emails);
+  }
+
+  @Get('prospects/campaign/stats')
+  getCampaignStats() {
+    return this.campaign.getStats();
+  }
+
+  @Patch('prospects/campaign/settings')
+  updateCampaignSettings(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: UpdateCampaignSettingsDto,
+  ) {
+    return this.campaign.updateSettings(admin.sub, dto);
   }
 
   @Get('subscriptions')

@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isEmail } from 'class-validator';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
@@ -32,7 +31,6 @@ import { SetDirectoryAccessDto } from './dto/set-directory-access.dto';
 import { SetLeadFinderAccessDto } from './dto/set-lead-finder-access.dto';
 import { ListProspectsQueryDto } from './dto/list-prospects-query.dto';
 import { InviteProspectDto } from './dto/invite-prospect.dto';
-import { BulkInviteProspectsDto } from './dto/bulk-invite-prospects.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
 
 const LEAD_SELECT = {
@@ -756,87 +754,9 @@ export class AdminService {
     return { message: `Invite sent to ${email}.` };
   }
 
-  /**
-   * Bulk counterpart to inviteProspect above, built for a CSV-sized list
-   * (tens of thousands of rows) rather than a single admin-typed address.
-   * Every email is sorted into exactly one bucket — sent / already has an
-   * account / unsubscribed / malformed — so a partial failure in the CSV
-   * (a typo'd row, a prospect who already signed up) never blocks the rest
-   * of the batch. Existing-user and suppression checks run in chunks
-   * (Postgres's parameter-count ceiling on a single `IN (...)` makes one
-   * query for 30,000 emails impractical) rather than one query per email.
-   */
-  async inviteProspectsBulk(
-    adminUserId: string,
-    dto: BulkInviteProspectsDto,
-  ): Promise<{
-    sent: number;
-    alreadyHasAccount: number;
-    unsubscribed: number;
-    invalid: number;
-    total: number;
-  }> {
-    const CHUNK_SIZE = 1_000;
-
-    const normalized = dto.emails.map((raw) => raw.trim().toLowerCase());
-    const valid = new Set<string>();
-    let invalid = 0;
-    for (const email of normalized) {
-      if (isEmail(email)) {
-        valid.add(email);
-      } else {
-        invalid += 1;
-      }
-    }
-
-    const candidates = [...valid];
-    const existingEmails = new Set<string>();
-    const suppressedEmails = new Set<string>();
-
-    for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
-      const chunk = candidates.slice(i, i + CHUNK_SIZE);
-      const [existingUsers, suppressions] = await Promise.all([
-        this.prisma.user.findMany({
-          where: { email: { in: chunk } },
-          select: { email: true },
-        }),
-        this.prisma.emailSuppression.findMany({
-          where: { email: { in: chunk } },
-          select: { email: true },
-        }),
-      ]);
-      for (const u of existingUsers) existingEmails.add(u.email);
-      for (const s of suppressions) suppressedEmails.add(s.email);
-    }
-
-    const toSend = candidates.filter(
-      (email) => !existingEmails.has(email) && !suppressedEmails.has(email),
-    );
-
-    if (toSend.length > 0) {
-      await this.email.sendProspectInviteBulk(toSend);
-    }
-
-    await this.audit.record({
-      actorUserId: adminUserId,
-      action: 'admin.prospects_invited_bulk',
-      metadata: {
-        total: dto.emails.length,
-        sent: toSend.length,
-        alreadyHasAccount: existingEmails.size,
-        unsubscribed: suppressedEmails.size,
-        invalid,
-      },
-    });
-
-    return {
-      sent: toSend.length,
-      alreadyHasAccount: existingEmails.size,
-      unsubscribed: suppressedEmails.size,
-      invalid,
-      total: dto.emails.length,
-    };
-  }
+  // Bulk CSV/paste uploads are handled by ProspectCampaignService
+  // (queues into ProspectInviteQueue for the daily-capped drip, rather
+  // than sending immediately) — see AdminController.queueProspectsBulk.
 
   // ── Subscriptions ────────────────────────────────────────────────────
 

@@ -149,6 +149,7 @@ model User {
   sentInvites        Invite[]
   sentAdminAccessInvites AdminAccessInvite[]
   submittedLeads     Lead[]
+  uploadedProspectInvites ProspectInviteQueue[]
 
   // Persistent Lead Finder balance — never expires. Starts at 100 (the Free
   // tier's one-time grant — see LeadFinderTier) for every new account,
@@ -747,4 +748,51 @@ model EmailSuppression {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("email_suppressions")
+}
+
+// A CSV/paste upload lands here as PENDING rows rather than sending
+// immediately (see ProspectCampaignService) — a brand-new sending domain
+// can't safely absorb a 17,000-email blast, so the daily drip job below
+// sends a capped batch per day instead. Re-checked against User/
+// EmailSuppression again at actual send time (not just upload time), since
+// weeks may pass between upload and a given row's turn.
+enum ProspectInviteQueueStatus {
+  PENDING
+  SENT
+  SKIPPED_EXISTING_USER
+  SKIPPED_UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+}
+
+model ProspectInviteQueue {
+  id     String                    @id @default(uuid()) @db.Uuid
+  email  String                    @unique
+  status ProspectInviteQueueStatus @default(PENDING)
+
+  uploadedByUserId String? @db.Uuid @map("uploaded_by_user_id")
+  uploadedBy       User?   @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  sentAt    DateTime? @map("sent_at")
+
+  @@index([status, createdAt])
+  @@map("prospect_invite_queue")
+}
+
+// Single row (fixed id) controlling the daily drip — one cold-outreach
+// queue at a time, not a config table per campaign. `paused` is set both
+// manually (admin toggle) and automatically by the daily job's own
+// bounce/complaint-rate circuit breaker (see
+// ProspectCampaignService.runDailyDrip) — a domain that starts bouncing or
+// getting spam-complained needs to stop immediately, not wait for someone
+// to notice the dashboard.
+model ProspectInviteCampaignSettings {
+  id       String  @id @default("singleton")
+  dailyCap Int     @default(25) @map("daily_cap")
+  paused   Boolean @default(false)
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("prospect_invite_campaign_settings")
 }

@@ -15,6 +15,7 @@ import { EmailModule } from './email/email.module';
 import { InvitesModule } from './invites/invites.module';
 import { LeadsModule } from './leads/leads.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProspectCampaignModule } from './prospect-campaign/prospect-campaign.module';
 import { QueueModule } from './queue/queue.module';
 import { RenewalReminderModule } from './renewal-reminder/renewal-reminder.module';
 import { SessionsModule } from './sessions/sessions.module';
@@ -51,6 +52,7 @@ import { UsersModule } from './users/users.module';
     ContactModule,
     InvitesModule,
     RenewalReminderModule,
+    ProspectCampaignModule,
   ],
   controllers: [AppController],
   providers: [
