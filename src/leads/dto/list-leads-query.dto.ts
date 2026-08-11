@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   MaxLength,
@@ -9,12 +9,16 @@ import {
 import { CompanyType } from '../../../generated/prisma/enums';
 import { ParseQueryBoolean } from '../../common/dto/parse-query-boolean.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { UNCLASSIFIED } from '../constants';
 
 export class ListLeadsQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: CompanyType })
+  @ApiPropertyOptional({
+    enum: [...Object.values(CompanyType), UNCLASSIFIED],
+    description: `Pass "${UNCLASSIFIED}" to match rows with no company type on file.`,
+  })
   @IsOptional()
-  @IsEnum(CompanyType)
-  companyType?: CompanyType;
+  @IsIn([...Object.values(CompanyType), UNCLASSIFIED])
+  companyType?: CompanyType | typeof UNCLASSIFIED;
 
   @ApiPropertyOptional({ description: 'Exact match, e.g. "MAU Vegas 2026"' })
   @IsOptional()

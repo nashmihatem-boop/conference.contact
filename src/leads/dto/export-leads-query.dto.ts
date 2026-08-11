@@ -1,20 +1,21 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
 import { CompanyType } from '../../../generated/prisma/enums';
 import { ParseQueryBoolean } from '../../common/dto/parse-query-boolean.decorator';
+import { UNCLASSIFIED } from '../constants';
 
 /** Same filters as ListLeadsQueryDto, no pagination — export streams every matching row, not a page of them. */
 export class ExportLeadsQueryDto {
-  @ApiPropertyOptional({ enum: CompanyType })
+  @ApiPropertyOptional({ enum: [...Object.values(CompanyType), UNCLASSIFIED] })
   @IsOptional()
-  @IsEnum(CompanyType)
-  companyType?: CompanyType;
+  @IsIn([...Object.values(CompanyType), UNCLASSIFIED])
+  companyType?: CompanyType | typeof UNCLASSIFIED;
 
   @ApiPropertyOptional()
   @IsOptional()

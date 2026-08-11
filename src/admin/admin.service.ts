@@ -20,6 +20,7 @@ import { ListAuditLogsQueryDto } from './dto/list-audit-logs-query.dto';
 import { ListFlaggedSessionsQueryDto } from './dto/list-flagged-sessions-query.dto';
 import { ListSubscriptionsQueryDto } from './dto/list-subscriptions-query.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { UNCLASSIFIED, resolveCompanyTypeFilter } from '../leads/constants';
 import { CreateLeadDto } from '../leads/dto/create-lead.dto';
 import { ListLeadsQueryDto } from '../leads/dto/list-leads-query.dto';
 import { UpdateLeadDto } from '../leads/dto/update-lead.dto';
@@ -919,7 +920,7 @@ export class AdminService {
    */
   async listLeads(query: ListLeadsQueryDto): Promise<Page<unknown>> {
     const where: Prisma.LeadWhereInput = {
-      companyType: query.companyType,
+      companyType: resolveCompanyTypeFilter(query.companyType),
       likelyToAttend: query.likelyToAttend,
       approved: query.approved,
       ...(query.hasEmail && { email: { not: null } }),
@@ -966,10 +967,15 @@ export class AdminService {
         orderBy: { likelyToAttend: 'asc' },
       }),
     ]);
+    const realTypes = companyTypes
+      .map((c) => c.companyType)
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+    const hasUnclassified = realTypes.length < companyTypes.length;
+
     return {
-      companyTypes: companyTypes
-        .map((c) => c.companyType)
-        .filter((c): c is NonNullable<typeof c> => c !== null),
+      companyTypes: hasUnclassified
+        ? [...realTypes, UNCLASSIFIED]
+        : realTypes,
       events: events.map((e) => e.likelyToAttend),
     };
   }

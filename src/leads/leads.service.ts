@@ -24,6 +24,7 @@ import {
 } from './apollo-taxonomy';
 import { ApolloService, ApolloSearchFilters } from './apollo.service';
 import { ClaudeService, ParsedSearchFilters } from './claude.service';
+import { UNCLASSIFIED, resolveCompanyTypeFilter } from './constants';
 import { AiSearchDto } from './dto/ai-search.dto';
 import { ExportLeadsQueryDto } from './dto/export-leads-query.dto';
 import { GetMoreLeadsDto } from './dto/get-more-leads.dto';
@@ -284,7 +285,7 @@ export class LeadsService {
   buildWhere(filters: LeadFilters): Prisma.LeadWhereInput {
     return {
       approved: true,
-      companyType: filters.companyType as Prisma.LeadWhereInput['companyType'],
+      companyType: resolveCompanyTypeFilter(filters.companyType),
       likelyToAttend: filters.likelyToAttend,
       ...(filters.hasEmail && { email: { not: null } }),
       ...(filters.search && {
@@ -482,12 +483,18 @@ export class LeadsService {
         orderBy: { likelyToAttend: 'asc' },
       }),
     ]);
+    const realTypes = companyTypes
+      .map((c) => c.companyType)
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+    const hasUnclassified = realTypes.length < companyTypes.length;
+
     return {
-      // Unclassified (null) rows aren't offered as a filter choice — they
-      // stay findable via search or the event filter instead.
-      companyTypes: companyTypes
-        .map((c) => c.companyType)
-        .filter((c): c is NonNullable<typeof c> => c !== null),
+      // The UNCLASSIFIED sentinel only appears when at least one row
+      // actually has no company type on file — no point offering a filter
+      // that would always return zero rows.
+      companyTypes: hasUnclassified
+        ? [...realTypes, UNCLASSIFIED]
+        : realTypes,
       events: events.map((e) => e.likelyToAttend),
     };
   }
