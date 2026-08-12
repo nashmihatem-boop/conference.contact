@@ -114,6 +114,11 @@ export class SessionsService {
     });
   }
 
+  /** Used to walk a rotation chain's replacedByTokenId — see AuthService.refresh()'s concurrent-refresh grace window. */
+  findById(id: string): Promise<Session | null> {
+    return this.prisma.session.findUnique({ where: { id } });
+  }
+
   /** Revokes `oldSession` and issues a fresh one linked to it via replacedByTokenId — this is refresh-token rotation. */
   async rotate(
     oldSession: Session,

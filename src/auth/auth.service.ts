@@ -33,6 +33,7 @@ import { RiskService } from '../sessions/risk.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { UsersService } from '../users/users.service';
 import {
+  CONCURRENT_REFRESH_GRACE_SECONDS,
   EMAIL_VERIFICATION_EXPIRY_HOURS,
   LEGAL_DOCUMENT_VERSIONS,
   LOGIN_CHALLENGE_EXPIRY_MINUTES,
@@ -395,24 +396,59 @@ export class AuthService {
     rawRefreshToken: string,
     meta: RequestMeta,
   ): Promise<TokenPair> {
-    const session = await this.sessions.findActiveByRawToken(rawRefreshToken);
+    let session = await this.sessions.findActiveByRawToken(rawRefreshToken);
 
     if (!session) {
       const anySession = await this.sessions.findAnyByRawToken(rawRefreshToken);
-      if (anySession?.revokedAt) {
-        // A revoked refresh token being presented again means it was
-        // either replayed by a client bug or stolen after rotation.
-        // Either way, the safe response is to kill every session on the
-        // account rather than trust anything currently active.
-        await this.sessions.revokeAllForUser(anySession.userId);
-        await this.audit.record({
-          actorUserId: anySession.userId,
-          action: 'auth.refresh_token_reuse_detected',
-          metadata: { sessionId: anySession.id },
-          ipAddress: meta.ipAddress,
-        });
+
+      // A revoked token presented again is usually real theft — but it's
+      // also exactly what a page firing two authenticated requests in
+      // parallel produces (e.g. account.astro's loadStatus()/loadInvites())
+      // when the stored access token is already stale: both requests 401,
+      // both call refresh with the *same* pre-rotation token, the first
+      // rotates it, and the second arrives moments later holding what's
+      // now a revoked token. Rotated very recently, with a live successor
+      // still sitting right there, is that benign race — hand the second
+      // caller a fresh pair from the successor instead of nuking the
+      // account's sessions out from under the request that just succeeded.
+      // Anything older, or whose successor is itself already gone, falls
+      // through to the real theft response below.
+      if (anySession?.revokedAt && anySession.replacedByTokenId) {
+        const revokedSecondsAgo =
+          (Date.now() - anySession.revokedAt.getTime()) / 1000;
+        if (revokedSecondsAgo <= CONCURRENT_REFRESH_GRACE_SECONDS) {
+          const successor = await this.sessions.findById(
+            anySession.replacedByTokenId,
+          );
+          if (
+            successor &&
+            !successor.revokedAt &&
+            successor.expiresAt > new Date()
+          ) {
+            session = successor;
+          }
+        }
       }
-      throw new UnauthorizedException('Session expired — please log in again');
+
+      if (!session) {
+        if (anySession?.revokedAt) {
+          // Outside the grace window (or no live successor to fall back
+          // to) — either replayed by a client bug or stolen after
+          // rotation. Either way, the safe response is to kill every
+          // session on the account rather than trust anything currently
+          // active.
+          await this.sessions.revokeAllForUser(anySession.userId);
+          await this.audit.record({
+            actorUserId: anySession.userId,
+            action: 'auth.refresh_token_reuse_detected',
+            metadata: { sessionId: anySession.id },
+            ipAddress: meta.ipAddress,
+          });
+        }
+        throw new UnauthorizedException(
+          'Session expired — please log in again',
+        );
+      }
     }
 
     const user = await this.users.findById(session.userId);
