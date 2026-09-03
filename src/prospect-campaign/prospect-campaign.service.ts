@@ -2,11 +2,27 @@ import { Injectable, Logger } from '@nestjs/common';
 import { isEmail } from 'class-validator';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
+import {
+  DEFAULT_BODY,
+  DEFAULT_CTA_LABEL,
+  DEFAULT_FOOTNOTE,
+  DEFAULT_HEADING,
+  DEFAULT_SUBJECT,
+} from '../email/prospect-invite-template-defaults';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCampaignSettingsDto } from './dto/update-campaign-settings.dto';
+import { UpdateEmailTemplateDto } from './dto/update-email-template.dto';
 
 const SETTINGS_ID = 'singleton';
 const CHUNK_SIZE = 1_000;
+
+export interface EmailTemplate {
+  subject: string;
+  heading: string;
+  body: string;
+  ctaLabel: string;
+  footnote: string;
+}
 
 export interface CampaignStats {
   pending: number;
@@ -178,6 +194,54 @@ export class ProspectCampaignService {
     });
 
     return { dailyCap: updated.dailyCap, paused: updated.paused };
+  }
+
+  /** Effective current copy — a saved override where one exists, the original default otherwise. Populates the template editor on page load. */
+  async getEmailTemplate(): Promise<EmailTemplate> {
+    const settings = await this.getOrCreateSettings();
+    return {
+      subject: settings.emailSubject ?? DEFAULT_SUBJECT,
+      heading: settings.emailHeading ?? DEFAULT_HEADING,
+      body: settings.emailBody ?? DEFAULT_BODY,
+      ctaLabel: settings.emailCtaLabel ?? DEFAULT_CTA_LABEL,
+      footnote: settings.emailFootnote ?? DEFAULT_FOOTNOTE,
+    };
+  }
+
+  /**
+   * Saves an admin's edits to the prospect-cold-invite copy — read by
+   * BulkEmailProcessor at send time, so this takes effect on the very next
+   * send (including one already queued and not yet processed). An empty
+   * string clears a field back to its default rather than sending blank
+   * copy — only a genuinely provided non-empty value overrides.
+   */
+  async updateEmailTemplate(
+    adminUserId: string,
+    dto: UpdateEmailTemplateDto,
+  ): Promise<EmailTemplate> {
+    const data = {
+      ...(dto.subject !== undefined && { emailSubject: dto.subject || null }),
+      ...(dto.heading !== undefined && { emailHeading: dto.heading || null }),
+      ...(dto.body !== undefined && { emailBody: dto.body || null }),
+      ...(dto.ctaLabel !== undefined && {
+        emailCtaLabel: dto.ctaLabel || null,
+      }),
+      ...(dto.footnote !== undefined && {
+        emailFootnote: dto.footnote || null,
+      }),
+    };
+    await this.prisma.prospectInviteCampaignSettings.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, ...data },
+      update: data,
+    });
+
+    await this.audit.record({
+      actorUserId: adminUserId,
+      action: 'admin.prospect_campaign_template_updated',
+    });
+
+    return this.getEmailTemplate();
   }
 
   /**

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { Resend } from 'resend';
+import { PrismaService } from '../prisma/prisma.service';
 import { BULK_EMAIL_QUEUE } from '../queue/queue.module';
 import {
   ctaButton,
@@ -11,7 +12,15 @@ import {
   heading,
   paragraph,
   renderEmail,
+  sanitizeForSubject,
 } from './email-template.util';
+import {
+  DEFAULT_BODY,
+  DEFAULT_CTA_LABEL,
+  DEFAULT_FOOTNOTE,
+  DEFAULT_HEADING,
+  DEFAULT_SUBJECT,
+} from './prospect-invite-template-defaults';
 import { signUnsubscribeToken } from './unsubscribe-token.util';
 
 interface ProspectColdInviteData {
@@ -38,7 +47,10 @@ export class BulkEmailProcessor extends WorkerHost {
   private readonly unsubscribeSecret: string;
   private readonly mailingAddress: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super();
     this.resend = new Resend(this.config.getOrThrow<string>('RESEND_API_KEY'));
     this.from = this.config.getOrThrow<string>('RESEND_FROM_EMAIL');
@@ -57,18 +69,28 @@ export class BulkEmailProcessor extends WorkerHost {
         const { to } = job.data as ProspectColdInviteData;
         const link = `${this.frontendUrl}/invited?email=${encodeURIComponent(to)}`;
         const unsubscribeLink = `${this.frontendUrl}/unsubscribe?email=${encodeURIComponent(to)}&token=${encodeURIComponent(signUnsubscribeToken(to, this.unsubscribeSecret))}`;
+        const settings =
+          await this.prisma.prospectInviteCampaignSettings.findUnique({
+            where: { id: 'singleton' },
+            select: {
+              emailSubject: true,
+              emailHeading: true,
+              emailBody: true,
+              emailCtaLabel: true,
+              emailFootnote: true,
+            },
+          });
         await this.send(
           to,
-          "You've been invited to check out conference.contact",
+          sanitizeForSubject(settings?.emailSubject ?? DEFAULT_SUBJECT),
           renderEmail(
-            heading('Thought this might be useful') +
-              paragraph(
-                'A hand-verified directory of B2B conference contacts, with an AI tool that finds and enriches new leads live — take a look and see what’s inside.',
+            heading(escapeHtml(settings?.emailHeading ?? DEFAULT_HEADING)) +
+              paragraph(escapeHtml(settings?.emailBody ?? DEFAULT_BODY)) +
+              ctaButton(
+                link,
+                escapeHtml(settings?.emailCtaLabel ?? DEFAULT_CTA_LABEL),
               ) +
-              ctaButton(link, 'Take a look →') +
-              footnote(
-                'No obligation — you can create a free account just to browse.',
-              ),
+              footnote(escapeHtml(settings?.emailFootnote ?? DEFAULT_FOOTNOTE)),
             // CAN-SPAM requires a visible opt-out link and a physical
             // mailing address in the body of any commercial email — a
             // List-Unsubscribe header alone (below) satisfies neither.

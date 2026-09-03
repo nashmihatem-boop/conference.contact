@@ -792,6 +792,19 @@ model ProspectInviteCampaignSettings {
   dailyCap Int     @default(25) @map("daily_cap")
   paused   Boolean @default(false)
 
+  // Editable copy for the prospect-cold-invite template — see
+  // BulkEmailProcessor, which reads these instead of hardcoded strings.
+  // Nullable: null means "use the original hardcoded default," so this
+  // never breaks before an admin edits it for the first time. The CTA
+  // link itself (/invited?email=...) and the compliance footer
+  // (unsubscribe link + mailing address) are NOT editable here — those
+  // are functional/legal requirements, not marketing copy.
+  emailSubject  String? @map("email_subject")
+  emailHeading  String? @map("email_heading")
+  emailBody     String? @map("email_body")
+  emailCtaLabel String? @map("email_cta_label")
+  emailFootnote String? @map("email_footnote")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("prospect_invite_campaign_settings")

@@ -36,6 +36,7 @@ import { PitchProspectDto } from './dto/pitch-prospect.dto';
 import { ProspectCampaignService } from '../prospect-campaign/prospect-campaign.service';
 import { UpdateCampaignSettingsDto } from '../prospect-campaign/dto/update-campaign-settings.dto';
 import { SendTestEmailDto } from '../prospect-campaign/dto/send-test-email.dto';
+import { UpdateEmailTemplateDto } from '../prospect-campaign/dto/update-email-template.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
 @ApiTags('admin')
@@ -187,6 +188,19 @@ export class AdminController {
   async sendCampaignTestEmail(@Body() dto: SendTestEmailDto) {
     await this.campaign.sendTestEmail(dto.email);
     return { message: `Test email sent to ${dto.email}.` };
+  }
+
+  @Get('prospects/campaign/template')
+  getCampaignEmailTemplate() {
+    return this.campaign.getEmailTemplate();
+  }
+
+  @Patch('prospects/campaign/template')
+  updateCampaignEmailTemplate(
+    @CurrentUser() admin: AccessTokenPayload,
+    @Body() dto: UpdateEmailTemplateDto,
+  ) {
+    return this.campaign.updateEmailTemplate(admin.sub, dto);
   }
 
   // Manual trigger for the same drip the 10am UTC scheduler runs — lets an
