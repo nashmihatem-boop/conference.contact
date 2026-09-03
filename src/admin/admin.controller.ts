@@ -189,6 +189,13 @@ export class AdminController {
     return { message: `Test email sent to ${dto.email}.` };
   }
 
+  // Manual trigger for the same drip the 10am UTC scheduler runs — lets an
+  // admin control timing directly instead of waiting for the cron.
+  @Post('prospects/campaign/send-now')
+  sendCampaignNow() {
+    return this.campaign.runDailyDrip();
+  }
+
   @Get('subscriptions')
   listSubscriptions(@Query() query: ListSubscriptionsQueryDto) {
     return this.admin.listSubscriptions(query);

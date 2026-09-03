@@ -212,12 +212,28 @@ export class ProspectCampaignService {
    * on a real bounce/complaint still applies via markBounced/markComplained
    * — that address is never retried — this only removed the campaign-wide
    * auto-pause.
+   *
+   * Called both by the 10am UTC scheduler (ProspectCampaignProcessor) and
+   * directly by an admin via the dashboard's "Send now" button — same
+   * logic either way, so a manual trigger is exactly as safe (still capped
+   * at dailyCap, still re-checks existing users/suppression at send time)
+   * as the scheduled run it's standing in for.
    */
-  async runDailyDrip(): Promise<void> {
+  async runDailyDrip(): Promise<{
+    sent: number;
+    skippedExisting: number;
+    skippedUnsubscribed: number;
+    batchSize: number;
+  }> {
     const settings = await this.getOrCreateSettings();
     if (settings.paused) {
       this.logger.log("Prospect campaign is paused — skipping today's drip.");
-      return;
+      return {
+        sent: 0,
+        skippedExisting: 0,
+        skippedUnsubscribed: 0,
+        batchSize: 0,
+      };
     }
 
     const candidates = await this.prisma.prospectInviteQueue.findMany({
@@ -225,7 +241,14 @@ export class ProspectCampaignService {
       orderBy: { createdAt: 'asc' },
       take: settings.dailyCap,
     });
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) {
+      return {
+        sent: 0,
+        skippedExisting: 0,
+        skippedUnsubscribed: 0,
+        batchSize: 0,
+      };
+    }
 
     const emails = candidates.map((c) => c.email);
     const [existingUsers, suppressions] = await Promise.all([
@@ -282,6 +305,13 @@ export class ProspectCampaignService {
     this.logger.log(
       `Prospect campaign drip: sent ${toSend.length}, skipped ${skippedExisting + skippedUnsubscribed} of ${candidates.length} candidates.`,
     );
+
+    return {
+      sent: toSend.length,
+      skippedExisting,
+      skippedUnsubscribed,
+      batchSize: candidates.length,
+    };
   }
 
   private async suppressAndUpdateStatus(
