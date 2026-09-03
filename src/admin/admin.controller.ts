@@ -35,6 +35,7 @@ import { BulkInviteProspectsDto } from './dto/bulk-invite-prospects.dto';
 import { PitchProspectDto } from './dto/pitch-prospect.dto';
 import { ProspectCampaignService } from '../prospect-campaign/prospect-campaign.service';
 import { UpdateCampaignSettingsDto } from '../prospect-campaign/dto/update-campaign-settings.dto';
+import { SendTestEmailDto } from '../prospect-campaign/dto/send-test-email.dto';
 
 /** Every route here requires ADMIN or SUPER_ADMIN — JwtAuthGuard (global) authenticates, RolesGuard authorizes. */
 @ApiTags('admin')
@@ -180,6 +181,12 @@ export class AdminController {
     @Body() dto: UpdateCampaignSettingsDto,
   ) {
     return this.campaign.updateSettings(admin.sub, dto);
+  }
+
+  @Post('prospects/campaign/test-send')
+  async sendCampaignTestEmail(@Body() dto: SendTestEmailDto) {
+    await this.campaign.sendTestEmail(dto.email);
+    return { message: `Test email sent to ${dto.email}.` };
   }
 
   @Get('subscriptions')

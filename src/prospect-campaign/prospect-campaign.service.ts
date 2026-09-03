@@ -8,15 +8,6 @@ import { UpdateCampaignSettingsDto } from './dto/update-campaign-settings.dto';
 const SETTINGS_ID = 'singleton';
 const CHUNK_SIZE = 1_000;
 
-// A domain with zero sending history can't safely absorb bounce/complaint
-// noise the way an established one can — 3% combined bounce+complaint rate
-// is well above what AWS SES tolerates before suspending the account
-// (~5% bounce / ~0.1% complaint are its own thresholds), so tripping here
-// leaves real margin. MIN_SAMPLE avoids pausing on a couple of unlucky
-// early sends before the rate is statistically meaningful.
-const CIRCUIT_BREAKER_MIN_SAMPLE = 20;
-const CIRCUIT_BREAKER_MAX_BAD_RATE = 0.03;
-
 export interface CampaignStats {
   pending: number;
   sent: number;
@@ -189,6 +180,19 @@ export class ProspectCampaignService {
     return { dailyCap: updated.dailyCap, paused: updated.paused };
   }
 
+  /**
+   * Sends the real prospect-cold-invite template to a single address an
+   * admin specifies, for previewing exactly what the campaign sends —
+   * deliberately skips the existing-user/suppression checks the real
+   * campaign applies (enqueueUploadedEmails/runDailyDrip), since an admin
+   * explicitly requesting a test send (often to their own account's email)
+   * isn't the scenario those guards exist for. Not logged to the queue or
+   * audit trail as a campaign send — it isn't one.
+   */
+  async sendTestEmail(email: string): Promise<void> {
+    await this.email.sendProspectInvite(email);
+  }
+
   /** Called from the Resend webhook (see ResendWebhookController) — a hard bounce means the address is dead, never worth retrying cold or otherwise. */
   async markBounced(email: string): Promise<void> {
     await this.suppressAndUpdateStatus(email, 'BOUNCED');
@@ -200,11 +204,14 @@ export class ProspectCampaignService {
   }
 
   /**
-   * The daily drip: sends up to dailyCap PENDING rows, oldest first. Runs a
-   * bounce/complaint circuit breaker first — if the campaign's overall bad
-   * rate has crossed the safety threshold, it auto-pauses and skips
-   * sending entirely rather than compounding the damage while someone
-   * notices the dashboard.
+   * The daily drip: sends up to dailyCap PENDING rows, oldest first. Only
+   * ever skips a run if an admin has explicitly paused the campaign —
+   * there is deliberately no automatic pause on bounce/complaint rate
+   * (see getStats().bounceComplaintRate, still computed and shown on the
+   * dashboard for the admin to act on manually). Per-address suppression
+   * on a real bounce/complaint still applies via markBounced/markComplained
+   * — that address is never retried — this only removed the campaign-wide
+   * auto-pause.
    */
   async runDailyDrip(): Promise<void> {
     const settings = await this.getOrCreateSettings();
@@ -212,9 +219,6 @@ export class ProspectCampaignService {
       this.logger.log("Prospect campaign is paused — skipping today's drip.");
       return;
     }
-
-    const tripped = await this.checkAndApplyCircuitBreaker();
-    if (tripped) return;
 
     const candidates = await this.prisma.prospectInviteQueue.findMany({
       where: { status: 'PENDING' },
@@ -278,38 +282,6 @@ export class ProspectCampaignService {
     this.logger.log(
       `Prospect campaign drip: sent ${toSend.length}, skipped ${skippedExisting + skippedUnsubscribed} of ${candidates.length} candidates.`,
     );
-  }
-
-  private async checkAndApplyCircuitBreaker(): Promise<boolean> {
-    const counts = await this.prisma.prospectInviteQueue.groupBy({
-      by: ['status'],
-      where: { status: { in: ['SENT', 'BOUNCED', 'COMPLAINED'] } },
-      _count: true,
-    });
-    const byStatus: Record<string, number> = {};
-    for (const row of counts) byStatus[row.status] = row._count;
-    const sent = byStatus.SENT ?? 0;
-    const bounced = byStatus.BOUNCED ?? 0;
-    const complained = byStatus.COMPLAINED ?? 0;
-    const attempted = sent + bounced + complained;
-
-    if (attempted < CIRCUIT_BREAKER_MIN_SAMPLE) return false;
-    const badRate = (bounced + complained) / attempted;
-    if (badRate <= CIRCUIT_BREAKER_MAX_BAD_RATE) return false;
-
-    await this.prisma.prospectInviteCampaignSettings.upsert({
-      where: { id: SETTINGS_ID },
-      create: { id: SETTINGS_ID, paused: true },
-      update: { paused: true },
-    });
-    await this.audit.record({
-      action: 'admin.prospect_campaign_auto_paused',
-      metadata: { attempted, bounced, complained, badRate },
-    });
-    this.logger.warn(
-      `Prospect campaign auto-paused: ${(badRate * 100).toFixed(2)}% bounce/complaint rate over ${attempted} sends.`,
-    );
-    return true;
   }
 
   private async suppressAndUpdateStatus(
