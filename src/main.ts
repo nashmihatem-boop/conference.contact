@@ -85,6 +85,16 @@ async function bootstrap() {
   // real deployment topology ever has more hops than that.
   app.set('trust proxy', 1);
 
+  // Site paused — short-circuits every request before anything else runs.
+  // Remove this block to bring the API back online.
+  app.use((_req: express.Request, res: express.Response) => {
+    res.status(503).json({
+      statusCode: 503,
+      error: 'Service Unavailable',
+      message: 'conference.contact is temporarily unavailable.',
+    });
+  });
+
   app.use(helmet());
   app.use(cookieParser());
 
