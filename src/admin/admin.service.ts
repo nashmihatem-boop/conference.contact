@@ -1004,11 +1004,23 @@ export class AdminService {
    * service).
    */
   async listLeads(query: ListLeadsQueryDto): Promise<Page<unknown>> {
+    // toDate is inclusive of the whole day, so we filter up to (but not
+    // including) the start of the following day rather than using `lte`
+    // against a midnight timestamp, which would exclude that day entirely.
+    const createdAtFilter: Prisma.DateTimeFilter = {};
+    if (query.fromDate) createdAtFilter.gte = new Date(query.fromDate);
+    if (query.toDate) {
+      const exclusiveEnd = new Date(query.toDate);
+      exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+      createdAtFilter.lt = exclusiveEnd;
+    }
+
     const where: Prisma.LeadWhereInput = {
       companyType: resolveCompanyTypeFilter(query.companyType),
       likelyToAttend: query.likelyToAttend,
       approved: query.approved,
       ...(query.hasEmail && { email: { not: null } }),
+      ...((query.fromDate || query.toDate) && { createdAt: createdAtFilter }),
       ...(query.search && {
         OR: [
           { name: { contains: query.search, mode: 'insensitive' } },

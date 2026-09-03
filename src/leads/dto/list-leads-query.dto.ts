@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -52,4 +53,18 @@ export class ListLeadsQueryDto extends PaginationQueryDto {
   @ParseQueryBoolean()
   @IsBoolean()
   approved?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Only leads added on or after this date (YYYY-MM-DD).',
+  })
+  @IsOptional()
+  @IsDateString()
+  fromDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only leads added on or before this date (YYYY-MM-DD).',
+  })
+  @IsOptional()
+  @IsDateString()
+  toDate?: string;
 }
