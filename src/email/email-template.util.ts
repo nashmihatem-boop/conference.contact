@@ -23,13 +23,20 @@ export function escapeHtml(value: string): string {
  * CAN-SPAM requires both in the body itself, not just as email headers.
  * Every other (transactional) email leaves it unset.
  */
+// The real site icon, already publicly hosted as a static asset — not an
+// environment-sensitive URL (unlike an unsubscribe/CTA link, which must
+// point at whichever frontend actually issued the email), so it's safe to
+// point at production directly rather than threading FRONTEND_URL through
+// every renderEmail() call site just for a logo image.
+const LOGO_ICON_URL = 'https://www.conference.contact/icons/icon-64.png';
+
 export function renderEmail(body: string, complianceFooter?: string): string {
   return `<div style="background-color:#eeeef0;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <div style="max-width:480px;margin:0 auto;">
       <table role="presentation" style="margin:0 auto 28px;" cellpadding="0" cellspacing="0">
         <tr>
-          <td style="width:28px;height:28px;background-color:#c3db42;border-radius:7px;text-align:center;vertical-align:middle;">
-            <div style="width:16px;height:11px;background-color:#0d1448;border-radius:2px;margin:0 auto;"></div>
+          <td style="width:28px;height:28px;vertical-align:middle;">
+            <img src="${LOGO_ICON_URL}" width="28" height="28" alt="conference.contact" style="display:block;border-radius:7px;" />
           </td>
           <td style="padding-left:9px;font-size:17px;font-weight:800;color:#12152b;">conference<span style="color:#a9c022;">.</span>contact</td>
         </tr>

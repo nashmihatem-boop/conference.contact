@@ -794,16 +794,21 @@ model ProspectInviteCampaignSettings {
 
   // Editable copy for the prospect-cold-invite template — see
   // BulkEmailProcessor, which reads these instead of hardcoded strings.
-  // Nullable: null means "use the original hardcoded default," so this
-  // never breaks before an admin edits it for the first time. The CTA
-  // link itself (/invited?email=...) and the compliance footer
-  // (unsubscribe link + mailing address) are NOT editable here — those
-  // are functional/legal requirements, not marketing copy.
-  emailSubject  String? @map("email_subject")
-  emailHeading  String? @map("email_heading")
-  emailBody     String? @map("email_body")
-  emailCtaLabel String? @map("email_cta_label")
-  emailFootnote String? @map("email_footnote")
+  // Nullable: null means "use the original hardcoded default" (the
+  // COMPANY_MAILING_ADDRESS env var, for the address), so this never
+  // breaks before an admin edits it for the first time. The CTA link
+  // itself (/invited?email=...) and the unsubscribe link stay hardcoded —
+  // those are functional, not copy. The mailing address IS editable
+  // (unlike the unsubscribe link) since CAN-SPAM only requires *a* real
+  // address be present, not this specific string — but
+  // updateEmailTemplate enforces it can never be saved blank, since some
+  // real address must always be there.
+  emailSubject         String? @map("email_subject")
+  emailHeading         String? @map("email_heading")
+  emailBody            String? @map("email_body")
+  emailCtaLabel        String? @map("email_cta_label")
+  emailFootnote        String? @map("email_footnote")
+  emailMailingAddress  String? @map("email_mailing_address")
 
   updatedAt DateTime @updatedAt @map("updated_at")
 

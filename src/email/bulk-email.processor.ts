@@ -45,7 +45,9 @@ export class BulkEmailProcessor extends WorkerHost {
   private readonly frontendUrl: string;
   private readonly supportEmail: string;
   private readonly unsubscribeSecret: string;
-  private readonly mailingAddress: string;
+  // Fallback only — an admin-saved emailMailingAddress on the campaign
+  // settings row (see below) takes priority once one exists.
+  private readonly defaultMailingAddress: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -58,7 +60,7 @@ export class BulkEmailProcessor extends WorkerHost {
     this.supportEmail = this.config.getOrThrow<string>('SUPPORT_EMAIL');
     this.unsubscribeSecret =
       this.config.getOrThrow<string>('UNSUBSCRIBE_SECRET');
-    this.mailingAddress = this.config.getOrThrow<string>(
+    this.defaultMailingAddress = this.config.getOrThrow<string>(
       'COMPANY_MAILING_ADDRESS',
     );
   }
@@ -78,6 +80,7 @@ export class BulkEmailProcessor extends WorkerHost {
               emailBody: true,
               emailCtaLabel: true,
               emailFootnote: true,
+              emailMailingAddress: true,
             },
           });
         await this.send(
@@ -97,7 +100,7 @@ export class BulkEmailProcessor extends WorkerHost {
             `<p style="text-align:center;margin-top:12px;font-size:12px;color:#9395a6;">
                <a href="${unsubscribeLink}" style="color:#9395a6;text-decoration:underline;">Unsubscribe</a> from emails like this.
              </p>
-             <p style="text-align:center;margin-top:8px;font-size:11px;color:#b3b5c2;">${escapeHtml(this.mailingAddress)}</p>`,
+             <p style="text-align:center;margin-top:8px;font-size:11px;color:#b3b5c2;">${escapeHtml(settings?.emailMailingAddress ?? this.defaultMailingAddress)}</p>`,
           ),
           this.supportEmail,
           unsubscribeLink,

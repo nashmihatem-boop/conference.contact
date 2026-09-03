@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { isEmail } from 'class-validator';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
@@ -22,6 +23,7 @@ export interface EmailTemplate {
   body: string;
   ctaLabel: string;
   footnote: string;
+  mailingAddress: string;
 }
 
 export interface CampaignStats {
@@ -49,12 +51,18 @@ export interface CampaignStats {
 @Injectable()
 export class ProspectCampaignService {
   private readonly logger = new Logger(ProspectCampaignService.name);
+  private readonly defaultMailingAddress: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly audit: AuditService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.defaultMailingAddress = config.getOrThrow<string>(
+      'COMPANY_MAILING_ADDRESS',
+    );
+  }
 
   async enqueueUploadedEmails(
     uploadedByUserId: string,
@@ -205,6 +213,8 @@ export class ProspectCampaignService {
       body: settings.emailBody ?? DEFAULT_BODY,
       ctaLabel: settings.emailCtaLabel ?? DEFAULT_CTA_LABEL,
       footnote: settings.emailFootnote ?? DEFAULT_FOOTNOTE,
+      mailingAddress:
+        settings.emailMailingAddress ?? this.defaultMailingAddress,
     };
   }
 
@@ -213,12 +223,26 @@ export class ProspectCampaignService {
    * BulkEmailProcessor at send time, so this takes effect on the very next
    * send (including one already queued and not yet processed). An empty
    * string clears a field back to its default rather than sending blank
-   * copy — only a genuinely provided non-empty value overrides.
+   * copy — only a genuinely provided non-empty value overrides. The
+   * mailing address is the one field where CAN-SPAM requires *something*
+   * always be present, so a non-empty-but-too-short value is rejected
+   * outright instead of silently accepted — empty is still fine (clears
+   * back to COMPANY_MAILING_ADDRESS, which is itself validated at boot).
    */
   async updateEmailTemplate(
     adminUserId: string,
     dto: UpdateEmailTemplateDto,
   ): Promise<EmailTemplate> {
+    if (
+      dto.mailingAddress !== undefined &&
+      dto.mailingAddress !== '' &&
+      dto.mailingAddress.trim().length < 10
+    ) {
+      throw new BadRequestException(
+        'Mailing address looks too short to be real — leave it blank to use the default, or enter the full address.',
+      );
+    }
+
     const data = {
       ...(dto.subject !== undefined && { emailSubject: dto.subject || null }),
       ...(dto.heading !== undefined && { emailHeading: dto.heading || null }),
@@ -228,6 +252,9 @@ export class ProspectCampaignService {
       }),
       ...(dto.footnote !== undefined && {
         emailFootnote: dto.footnote || null,
+      }),
+      ...(dto.mailingAddress !== undefined && {
+        emailMailingAddress: dto.mailingAddress || null,
       }),
     };
     await this.prisma.prospectInviteCampaignSettings.upsert({
